@@ -69,21 +69,40 @@ with tabs[2]:
 
     uploaded_file = st.file_uploader("Upload CSV with review column", type="csv")
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
 
-    st.dataframe(df, width="stretch")
+        # Show raw data
+        st.dataframe(df, width='stretch')
 
-    # Remove null and empty reviews
-    df = df.dropna(subset=["review"])
-    df = df[df["review"].str.strip() != ""]
+        # Ensure 'review' column exists
+        if "review" not in df.columns:
+            st.error("CSV must contain a 'review' column.")
+        else:
+            # Drop null/empty reviews
+            df = df.dropna(subset=["review"])
 
-    df["sentiment"] = df["review"].apply(get_sentiment)
+            # Convert to string safely + clean whitespace
+            df["review"] = df["review"].astype(str).str.strip()
 
-    for _, row in df.iterrows():
-        insert_feedback(row["review"], row["sentiment"])
+            # Remove empty strings after stripping
+            df = df[df["review"] != ""]
 
-    st.success("Feedback successfully added!")
+            # Handle empty dataframe case
+            if df.empty:
+                st.warning("No valid reviews found after cleaning. Nothing to process.")
+            else:
+                # Sentiment analysis
+                df["sentiment"] = df["review"].apply(get_sentiment)
+
+                inserted_count = 0
+
+                # Insert into DB
+                for _, row in df.iterrows():
+                    insert_feedback(row["review"], row["sentiment"])
+                    inserted_count += 1
+
+                st.success(f"{inserted_count} feedback entries successfully added!")
 
 
 # ================= LOAD STORED DATA =================
