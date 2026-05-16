@@ -120,6 +120,8 @@ if data:
             fig, ax = plt.subplots()
             ax.bar(["Positive", "Negative"], [positive, negative])
             st.pyplot(fig)
+            plt.close(fig)  # Fix: prevents matplotlib memory leak
+
 
         st.markdown("---")
 
