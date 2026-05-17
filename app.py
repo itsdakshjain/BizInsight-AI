@@ -19,9 +19,9 @@ import io
 
 # ---------- Chimera AI Client ----------
 
-api_key = os.getenv("OPENROUTER_API_KEY", "dummy-key")
-#if not api_key:
-#    raise ValueError("OPENROUTER_API_KEY environment variable not set. Please create a .env file with your API key.")
+api_key = os.getenv("OPENROUTER_API_KEY")
+if not api_key:
+    raise ValueError("OPENROUTER_API_KEY environment variable not set. Please create a .env file with your API key.")
 
 client = OpenAI(
     api_key=api_key,
