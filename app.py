@@ -1,6 +1,6 @@
 import os
 import tempfile
-from pdf_generator import create_pdf
+#from pdf_generator import create_pdf
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,9 +11,9 @@ st.set_page_config(page_title="BizInsight AI", layout="wide")
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.feature_extraction.text import CountVectorizer
-from textblob import TextBlob
 from database import insert_feedback, fetch_feedback, clear_data
 from openai import OpenAI
+from sentiment import analyze
 
 # ---------- Chimera AI Client ----------
 
@@ -39,7 +39,8 @@ tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ 
 # ---------- Core Functions ----------
 
 def get_sentiment(text):
-    return TextBlob(text).sentiment.polarity
+    """Returns ensemble score float in [-1, +1] — same contract as before."""
+    return analyze(text)["score"]
 
 
 def ask_ai(question, reviews):
@@ -74,6 +75,30 @@ Question:
 with tabs[2]:
     st.subheader("📂 Upload Customer Reviews")
 
+    # ── Manual input ──────────────────────────────────────────────────────────
+    st.markdown("#### ✍️ Try a Single Review")
+    manual_review = st.text_area("Type a review to analyze", placeholder="e.g. The product broke after two days, very disappointed.")
+
+    if st.button("Analyze Review"):
+        if manual_review.strip():
+            with st.spinner("Analyzing..."):
+                result = analyze(manual_review.strip())
+            label = result["label"]
+            score = result["score"]
+
+            color = {"Positive": "🟢", "Neutral": "🟡", "Negative": "🔴"}.get(label, "⚪")
+            st.markdown(f"**Sentiment:** {color} {label}  &nbsp;&nbsp; **Score:** `{score:+.4f}`")
+            st.caption(f"VADER: `{result['vader_score']:+.4f}`  |  BERT: `{result['bert_score']:+.4f}`")
+
+            if st.checkbox("Save this review to database"):
+                insert_feedback(manual_review.strip(), score)
+                st.success("Saved!")
+        else:
+            st.warning("Please type a review first.")
+
+    st.markdown("---")
+
+    # ── CSV upload ────────────────────────────────────────────────────────────
     uploaded_file = st.file_uploader("Upload CSV with review column", type="csv")
 
     if uploaded_file:
@@ -83,18 +108,16 @@ with tabs[2]:
             st.error("CSV must contain a 'review' column.")
         else:
             df = df.dropna(subset=["review"])
-
             df["review"] = df["review"].astype(str).str.strip()
             df = df[df["review"] != ""]
 
             if df.empty:
                 st.warning("No valid reviews found after cleaning. Nothing to process.")
             else:
-                df["sentiment"] = df["review"].apply(get_sentiment)
+                with st.spinner("Analyzing sentiment..."):
+                    df["sentiment"] = df["review"].apply(get_sentiment)
 
                 inserted_count = 0
-
-                
                 for _, row in df.iterrows():
                     insert_feedback(row["review"], row["sentiment"])
                     inserted_count += 1
@@ -118,7 +141,7 @@ if data:
     reviews = df["review"].dropna()
 
     if reviews.empty or (
-        reviews.apply(lambda x: isinstance(x, str)).all() and 
+        reviews.apply(lambda x: isinstance(x, str)).all() and
         reviews.str.strip().eq("").all()
     ):
         keywords = []
@@ -144,36 +167,26 @@ if data:
         c3.metric("Negative", negative)
 
         st.markdown("---")
-        # Create chart first
-        fig, ax = plt.subplots(figsize=(4,4))
 
-        ax.bar(
-            ["Positive", "Negative"],
-            [positive, negative]
-        )
-
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.bar(["Positive", "Negative"], [positive, negative])
         plt.tight_layout()
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
             chart_path = tmpfile.name
-
             fig.savefig(chart_path)
+
         if st.button("Generate PDF Report"):
-
-            # THEN create PDF
             pdf_path = create_pdf(len(df), positive, negative, chart_path)
-
-            # Download button
             with open(pdf_path, "rb") as pdf_file:
-
                 st.download_button(
-                label="Download Report",
-                data=pdf_file,
-                file_name="bizinsight_report.pdf",
-                mime="application/pdf"
-            )
+                    label="Download Report",
+                    data=pdf_file,
+                    file_name="bizinsight_report.pdf",
+                    mime="application/pdf"
+                )
 
-            # Dashboard visuals
-        col1, col2 = st.columns([2,1])
+        col1, col2 = st.columns([2, 1])
 
         with col1:
             st.subheader("Customer Satisfaction Trend")
@@ -181,7 +194,7 @@ if data:
 
         with col2:
             st.pyplot(fig)
-            plt.close(fig)  # Fix: prevents matplotlib memory leak
+            plt.close(fig)
             st.markdown("---")
 
         st.subheader("Top Customer Issues")
