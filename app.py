@@ -1,3 +1,10 @@
+import os
+import tempfile
+from pdf_generator import create_pdf
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import streamlit as st
 st.set_page_config(page_title="BizInsight AI", layout="wide")
 
@@ -7,22 +14,37 @@ from sklearn.feature_extraction.text import CountVectorizer
 from textblob import TextBlob
 from database import insert_feedback, fetch_feedback, clear_data
 
+from openai import OpenAI
+
+# ---------- Chimera AI Client ----------
+
+api_key = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+
+if not api_key:
+    raise ValueError("OPENROUTER_API_KEY not found in Streamlit secrets or environment variables.")
+
+client = OpenAI(
+    api_key=api_key,
+    base_url="https://openrouter.ai/api/v1"
+)
+
 st.title("📊 BizInsight AI")
 st.caption("AI-powered customer intelligence platform for business growth")
 
-# Tabs
-tabs = st.tabs(["📊 Dashboard", "📂 Data Upload", "⚙ Controls"])
+if "data_cleared" in st.session_state:
+    st.success("All data removed successfully.")
+    del st.session_state.data_cleared
 
+tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ Controls"])
 
 # ================= FUNCTIONS =================
 
 def get_sentiment(text):
     return TextBlob(text).sentiment.polarity
 
-
 # ================= DATA UPLOAD =================
 
-with tabs[1]:
+with tabs[2]:
 
     st.subheader("📂 Upload Customer Reviews")
 
@@ -35,26 +57,32 @@ with tabs[1]:
 
         df = pd.read_csv(uploaded_file)
 
-        # Validation
-        if "review" not in df.columns:
-            st.error("CSV file must contain a 'review' column.")
+        st.dataframe(df, width='stretch')
 
-        elif df.empty:
-            st.error("Uploaded CSV is empty.")
+        if "review" not in df.columns:
+            st.error("CSV must contain a 'review' column.")
 
         else:
 
-            st.dataframe(df, use_container_width=True)
+            df = df.dropna(subset=["review"])
 
-            # Sentiment Analysis
-            df["sentiment"] = df["review"].astype(str).apply(get_sentiment)
+            df["review"] = df["review"].astype(str).str.strip()
+            df = df[df["review"] != ""]
 
-            # Store in database
-            for _, row in df.iterrows():
-                insert_feedback(row["review"], row["sentiment"])
+            if df.empty:
+                st.warning("No valid reviews found after cleaning. Nothing to process.")
 
-            st.success("Feedback successfully added!")
+            else:
 
+                df["sentiment"] = df["review"].apply(get_sentiment)
+
+                inserted_count = 0
+
+                for _, row in df.iterrows():
+                    insert_feedback(row["review"], row["sentiment"])
+                    inserted_count += 1
+
+                st.success(f"{inserted_count} feedback entries successfully added!")
 
 # ================= FETCH DATA =================
 
@@ -85,16 +113,38 @@ if data:
     trend = df.groupby(df["date"].dt.date)["sentiment"].mean()
 
     # Keyword Extraction
-    vectorizer = CountVectorizer(
-        stop_words="english",
-        max_features=10
-    )
 
-    X = vectorizer.fit_transform(df["review"])
+    reviews = df["review"].dropna()
 
-    keywords = vectorizer.get_feature_names_out()
+    if reviews.empty or (
+        reviews.apply(lambda x: isinstance(x, str)).all() and
+        reviews.str.strip().eq("").all()
+    ):
+        keywords = []
+        keyword_counts = []
 
-    keyword_counts = X.toarray().sum(axis=0)
+    else:
+
+        vectorizer = CountVectorizer(
+            stop_words="english",
+            max_features=10
+        )
+
+        try:
+
+            X = vectorizer.fit_transform(reviews)
+
+            keywords = vectorizer.get_feature_names_out()
+            keyword_counts = X.toarray().sum(axis=0)
+
+        except ValueError as e:
+
+            if "empty vocabulary" in str(e).lower():
+                keywords = []
+                keyword_counts = []
+
+            else:
+                raise
 
     keyword_df = pd.DataFrame({
         "Keyword": keywords,
@@ -116,28 +166,65 @@ if data:
 
         st.markdown("---")
 
-        col1, col2 = st.columns([2, 1])
+        # Create chart first
+        fig, ax = plt.subplots(figsize=(4,4))
+
+        ax.bar(
+            ["Positive", "Negative"],
+            [positive, negative]
+        )
+
+        plt.tight_layout()
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+            chart_path = tmpfile.name
+
+            fig.savefig(chart_path)
+
+        if st.button("Generate PDF Report"):
+
+            pdf_path = create_pdf(
+                len(df),
+                positive,
+                negative,
+                chart_path
+            )
+
+            with open(pdf_path, "rb") as pdf_file:
+
+                st.download_button(
+                    label="Download Report",
+                    data=pdf_file,
+                    file_name="bizinsight_report.pdf",
+                    mime="application/pdf"
+                )
+
+        col1, col2 = st.columns([2,1])
 
         with col1:
+
             st.subheader("Customer Satisfaction Trend")
             st.area_chart(trend)
 
         with col2:
 
-            fig, ax = plt.subplots()
+            fig3, ax3 = plt.subplots()
 
-            ax.pie(
+            ax3.pie(
                 [positive, negative, neutral],
                 labels=["Positive", "Negative", "Neutral"],
                 autopct="%1.1f%%"
             )
 
-            st.pyplot(fig)
+            st.pyplot(fig3)
+            plt.close(fig3)
 
-        st.markdown("---")
+            st.markdown("---")
 
         st.subheader("📊 Sentiment Score Distribution")
-        col3,col4=st.columns([1,2])
+
+        col3, col4 = st.columns([1,2])
+
         with col3:
 
             fig2, ax2 = plt.subplots(figsize=(2.5,1.8))
@@ -157,7 +244,7 @@ if data:
 
     # ================= CONTROLS =================
 
-    with tabs[2]:
+    with tabs[3]:
 
         st.subheader("⚙ System Controls")
 
@@ -165,7 +252,8 @@ if data:
 
             clear_data()
 
-            st.success("All data removed successfully.")
+            st.session_state.data_cleared = True
+            st.rerun()
 
         st.warning("This action cannot be undone.")
 
