@@ -56,18 +56,18 @@ Analyze patterns, root problems and give improvement suggestions.
 Question:
 {question}
 """
-
-    response = client.chat.completions.create(
-        model="tngtech/deepseek-r1t2-chimera:free",
-        messages=[
-            {"role": "system", "content": "You provide business intelligence insights."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.4
-    )
-
-    return response.choices[0].message.content
-
+    try:
+        response = client.chat.completions.create(
+            model="tngtech/deepseek-r1t2-chimera:free",
+            messages=[
+                {"role": "system", "content": "You provide business intelligence insights."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ Error: Could not get a response from the AI. Please check your API key or try again later. (Details: {str(e)})"
 
 # ================= DATA UPLOAD =================
 
