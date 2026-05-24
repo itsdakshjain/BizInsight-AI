@@ -6,3 +6,4 @@ textblob
 openai
 python-dotenv
 reportlab
+fpdf
