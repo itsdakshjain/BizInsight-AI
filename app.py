@@ -184,45 +184,6 @@ if data:
 
     trend = df.groupby(df["date"].dt.date)["sentiment"].mean()
 
-    # Keyword Extraction
-
-    reviews = df["review"].dropna()
-
-    if reviews.empty or (
-        reviews.apply(lambda x: isinstance(x, str)).all() and
-        reviews.str.strip().eq("").all()
-    ):
-        keywords = []
-        keyword_counts = []
-
-    else:
-
-        vectorizer = CountVectorizer(
-            stop_words="english",
-            max_features=10
-        )
-
-        try:
-
-            X = vectorizer.fit_transform(reviews)
-
-            keywords = vectorizer.get_feature_names_out()
-            keyword_counts = X.toarray().sum(axis=0)
-
-        except ValueError as e:
-
-            if "empty vocabulary" in str(e).lower():
-                keywords = []
-                keyword_counts = []
-
-            else:
-                raise
-
-    keyword_df = pd.DataFrame({
-        "Keyword": keywords,
-        "Frequency": keyword_counts
-    })
-
     # ================= DASHBOARD =================
 
     with tabs[0]:
@@ -296,6 +257,50 @@ if data:
         # Keywords
 
         st.subheader("Top Customer Issues / Keywords")
+
+    # ================= DYNAMIC KEYWORD EXTRACTION & FILTERING =================
+        col_filter, _ = st.columns([1, 3])
+        with col_filter:
+            sentiment_filter = st.selectbox(
+                "Select Sentiment Category for Keywords",
+                ["All Reviews", "Positive Reviews", "Neutral Reviews", "Negative Reviews"]
+            )
+
+        # Filter the dataframe dynamically based on selection
+        if sentiment_filter == "Positive Reviews":
+            filtered_df = df[df["sentiment"] > 0.1]
+        elif sentiment_filter == "Negative Reviews":
+            filtered_df = df[df["sentiment"] < -0.1]
+        elif sentiment_filter == "Neutral Reviews":
+            filtered_df = df[(df["sentiment"] >= -0.1) & (df["sentiment"] <= 0.1)]
+        else:
+            filtered_df = df.copy()
+
+        reviews = filtered_df["review"].dropna()
+
+        if reviews.empty or (
+            reviews.apply(lambda x: isinstance(x, str)).all() and
+            reviews.str.strip().eq("").all()
+        ):
+            keywords = []
+            keyword_counts = []
+
+        else:
+            vectorizer = CountVectorizer(stop_words="english", max_features=10)
+
+            try:
+                X = vectorizer.fit_transform(reviews)
+                keywords = vectorizer.get_feature_names_out()
+                keyword_counts = X.toarray().sum(axis=0)
+            except ValueError as e:
+                if "empty vocabulary" in str(e).lower():
+                    keywords = []
+                    keyword_counts = []
+                else:
+                    raise
+
+        keyword_df = pd.DataFrame({"Keyword": keywords, "Frequency": keyword_counts}).sort_values(by="Frequency", ascending=False).reset_index(drop=True)
+        # Sort by frequency, but keep the numbering intact regardless of its position in the dataframe
 
         st.dataframe(keyword_df, use_container_width=True)
 
