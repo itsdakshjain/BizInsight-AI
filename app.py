@@ -9,7 +9,6 @@ st.set_page_config(page_title="BizInsight AI", layout="wide")
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.feature_extraction.text import CountVectorizer
-from textblob import TextBlob
 from database import insert_feedback, fetch_feedback, clear_data
 
 from openai import (
@@ -48,7 +47,8 @@ tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ 
 # ================= FUNCTIONS =================
 
 def get_sentiment(text):
-    return TextBlob(text).sentiment.polarity
+    """Returns ensemble score float in [-1, +1] — same contract as before."""
+    return analyze(text)["score"]
 
 
 # ================= AI ASSISTANT =================
@@ -144,6 +144,31 @@ with tabs[2]:
 
     st.subheader("📂 Upload Customer Reviews")
 
+    # ── Manual input ──────────────────────────────────────────────────────────
+    st.markdown("#### ✍️ Try a Single Review")
+    manual_review = st.text_area("Type a review to analyze", placeholder="e.g. The product broke after two days, very disappointed.")
+
+    if st.button("Analyze Review"):
+        if manual_review.strip():
+            with st.spinner("Analyzing..."):
+                result = analyze(manual_review.strip())
+            label = result["label"]
+            score = result["score"]
+
+            color = {"Positive": "🟢", "Neutral": "🟡", "Negative": "🔴"}.get(label, "⚪")
+            st.markdown(f"**Sentiment:** {color} {label}  &nbsp;&nbsp; **Score:** `{score:+.4f}`")
+            st.caption(f"VADER: `{result['vader_score']:+.4f}`  |  BERT: `{result['bert_score']:+.4f}`")
+
+            if st.checkbox("Save this review to database"):
+                insert_feedback(manual_review.strip(), score)
+                st.success("Saved!")
+        else:
+            st.warning("Please type a review first.")
+
+    st.markdown("---")
+
+    # ── CSV upload ────────────────────────────────────────────────────────────
+    uploaded_file = st.file_uploader("Upload CSV with review column", type="csv")
     uploaded_file = st.file_uploader(
         "Upload CSV with review column",
         type="csv"
@@ -161,7 +186,6 @@ with tabs[2]:
         else:
 
             df = df.dropna(subset=["review"])
-
             df["review"] = df["review"].astype(str).str.strip()
             df = df[df["review"] != ""]
 
@@ -170,6 +194,10 @@ with tabs[2]:
                 st.warning("No valid reviews found after cleaning.")
 
             else:
+                with st.spinner("Analyzing sentiment..."):
+                    df["sentiment"] = df["review"].apply(get_sentiment)
+
+                inserted_count = 0
 
                 df["sentiment"] = df["review"].apply(get_sentiment)
 
