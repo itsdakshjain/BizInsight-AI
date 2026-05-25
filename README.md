@@ -102,7 +102,30 @@ Once your virtual environment is active, install the required packages:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Application
+### 4. Set Up Environment Variables
+
+1. Create a free account at [OpenRouter](https://openrouter.ai/) and get your API key.
+
+2. Copy the example env file:
+   - **macOS / Linux:**
+```bash
+     cp .env.example .env
+```
+   - **Windows:**
+```bash
+     copy .env.example .env
+```
+
+3. Open the `.env` file and add your API key:
+```
+   OPENROUTER_API_KEY=your_api_key_here
+```
+
+> ⚠️ Never share or commit your `.env` file. It is already listed in `.gitignore`.
+
+---
+
+### 5. Run the Application
 Start the Streamlit dashboard:
 ```bash
 streamlit run app.py
