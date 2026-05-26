@@ -80,6 +80,7 @@ def clear_data():
         logger.error(f"Delete Error: {e}")
         raise
 
+# ... rest of the file ...
 
 # Create table when module loads
 initialize_database()

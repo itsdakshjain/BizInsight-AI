@@ -28,6 +28,8 @@ else:
 
 vader_analyzer = SentimentIntensityAnalyzer()
 
+vader_analyzer = SentimentIntensityAnalyzer()
+
 st.title("📊 BizInsight AI")
 st.caption("AI-powered customer intelligence platform for business growth")
 
@@ -54,14 +56,36 @@ def ask_ai(question, reviews):
 Customer reviews:
 {context}
 
-Question:
-{question}"""
-    response = client.chat.completions.create(
-        model="google/gemini-2.0-flash-exp:free",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4
-    )
-    return response.choices[0].message.content
+    Question:
+    {question}
+    """
+
+                try:
+
+                    response = client.chat.completions.create(
+                        model="tngtech/deepseek-r1t2-chimera:free",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You provide business intelligence insights."
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        temperature=0.4
+                    )
+
+                    answer = response.choices[0].message.content
+
+                    st.success("AI Insight Generated")
+                    st.write(answer)
+
+                except Exception as e:
+                    st.error(f"Error generating AI response: {str(e)}")
+
+# ================= DATA UPLOAD =================
 
 # ================= DATA UPLOAD =================
 with tabs[2]:
@@ -107,6 +131,7 @@ with tabs[2]:
                     st.error(f"Cannot connect to RAG API: {e}")
                     st.info("Start FastAPI server: python run_chatbot_api.py")
 
+        st.success(f"✅ Successfully added {len(df)} feedback entries!")
 # ================= FETCH DATA =================
 data = fetch_feedback()
 
