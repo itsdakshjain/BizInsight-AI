@@ -1,10 +1,16 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()
-import streamlit as st
-st.set_page_config(page_title="BizInsight AI", layout="wide")
+import uuid
+import re
+import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import streamlit as st
+st.set_page_config(page_title="BizInsight AI", layout="wide")
+
 from sklearn.feature_extraction.text import CountVectorizer
 from textblob import TextBlob
 from database import (
@@ -15,81 +21,51 @@ from database import (
 )
 initialize_database()
 from openai import OpenAI
-from sentiment import analyze
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from clustering.run_clustering import run_pipeline
+from clustering.vectorize import load_model
 
-# ---------- Chimera AI Client ----------
-
+# ---------- API Key ----------
 api_key = os.getenv("OPENROUTER_API_KEY")
-
 if not api_key:
-    st.warning("OPENROUTER_API_KEY not found. AI Assistant features will be disabled.")
+    st.warning("OPENROUTER_API_KEY not found. AI features will be disabled.")
     client = None
 else:
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1"
-    )
+    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+
+vader_analyzer = SentimentIntensityAnalyzer()
+
+vader_analyzer = SentimentIntensityAnalyzer()
 
 st.title("📊 BizInsight AI")
 st.caption("AI-powered customer intelligence platform for business growth")
 
-if "data_cleared" in st.session_state:
-    st.success("All data removed successfully.")
-    del st.session_state.data_cleared
+tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ Controls", "🧠 Chatbot"])
 
-tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ Controls"])
-
-# ================= FUNCTIONS =================
-
+# ---------- Helper functions ----------
 def get_sentiment(text):
-    """Returns ensemble score float in [-1, +1] — same contract as before."""
-    return analyze(text)["score"]
+    """VADER sentiment compound score."""
+    return vader_analyzer.polarity_scores(text)['compound']
 
+def clean_text_for_sentiment(text):
+    """Minimal cleaning for sentiment (lowercase, remove digits, #, extra spaces)."""
+    text = text.lower()
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'#', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-# ================= AI ASSISTANT =================
-
-with tabs[1]:
-
-    st.subheader("🤖 AI Business Assistant")
-
-    question = st.text_area(
-        "Ask business insights question",
-        placeholder="Example: What are the major customer complaints?"
-    )
-
-    if st.button("Generate AI Insight"):
-
-        if client is None:
-            st.warning("AI features unavailable because API key is missing.")
-
-        elif question.strip() == "":
-            st.warning("Please enter a question.")
-
-        else:
-
-            data = fetch_feedback()
-
-            if not data:
-                st.warning("No feedback data available.")
-
-            else:
-
-                df_ai = pd.DataFrame(
-                    data,
-                    columns=["review", "sentiment", "date"]
-                )
-
-                reviews_text = "\n".join(df_ai["review"].astype(str).tolist())
-
-                prompt = f"""
-You are a business intelligence assistant.
+def ask_ai(question, reviews):
+    """Legacy AI Assistant – uses first 40 reviews."""
+    context = "\n".join(reviews[:40])
+    prompt = f"""You are a business intelligence assistant.
 
 Customer reviews:
-{reviews_text}
+{context}
 
-Question:
-{question}
-"""
+    Question:
+    {question}
+    """
 
                 try:
 
@@ -116,44 +92,22 @@ Question:
                 except Exception as e:
                     st.error(f"Error generating AI response: {str(e)}")
 
-
 # ================= DATA UPLOAD =================
 
+# ================= DATA UPLOAD =================
 with tabs[2]:
-
     st.subheader("📂 Upload Customer Reviews")
-
-    # ── Manual input ──────────────────────────────────────────────────────────
-    st.markdown("#### ✍️ Try a Single Review")
-    manual_review = st.text_area("Type a review to analyze", placeholder="e.g. The product broke after two days, very disappointed.")
-
-    if st.button("Analyze Review"):
-        if manual_review.strip():
-            with st.spinner("Analyzing..."):
-                result = analyze(manual_review.strip())
-            label = result["label"]
-            score = result["score"]
-
-            color = {"Positive": "🟢", "Neutral": "🟡", "Negative": "🔴"}.get(label, "⚪")
-            st.markdown(f"**Sentiment:** {color} {label}  &nbsp;&nbsp; **Score:** `{score:+.4f}`")
-            st.caption(f"VADER: `{result['vader_score']:+.4f}`  |  BERT: `{result['bert_score']:+.4f}`")
-
-            if st.checkbox("Save this review to database"):
-                insert_feedback(manual_review.strip(), score)
-                st.success("Saved!")
-        else:
-            st.warning("Please type a review first.")
-
-    st.markdown("---")
-
-    # ── CSV upload ────────────────────────────────────────────────────────────
-    uploaded_file = st.file_uploader("Upload CSV with review column", type="csv")
-    uploaded_file = st.file_uploader(
-        "Upload CSV with review column",
-        type="csv"
-    )
+    uploaded_file = st.file_uploader("Upload CSV with review column", type="csv", key="csv_uploader")
 
     if uploaded_file:
+        if st.button("Process and Upload Data"):
+            clear_data()
+            # Read CSV (try UTF-8, fallback to latin1)
+            try:
+                df = pd.read_csv(uploaded_file)
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding='latin1')
 
         df = pd.read_csv(uploaded_file)
         if "date" not in df.columns:
@@ -178,11 +132,15 @@ with tabs[2]:
                 with st.spinner("Analyzing sentiment..."):
                     df["sentiment"] = df["review"].apply(get_sentiment)
 
-                inserted_count = 0
+            st.dataframe(df, use_container_width=True)
 
-                df["sentiment"] = df["review"].apply(get_sentiment)
+            original_reviews = df["review"].tolist()
+            cleaned_reviews = [clean_text_for_sentiment(t) for t in original_reviews]
+            sentiments = [get_sentiment(t) for t in cleaned_reviews]
 
-                inserted_count = 0
+            # Insert into SQLite
+            for orig, clean, sent in zip(original_reviews, cleaned_reviews, sentiments):
+                insert_feedback(orig, clean, sent)
 
                 for _, row in df.iterrows():
                     insert_feedback(
@@ -192,10 +150,22 @@ with tabs[2]:
                     )
                     inserted_count += 1
 
-                st.success(f"{inserted_count} feedback entries successfully added!")
+            # Sync ChromaDB (send original reviews)
+            with st.spinner("Syncing to vector database..."):
+                try:
+                    docs = [{"page_content": orig, "metadata": {"sentiment": sent}}
+                            for orig, sent in zip(original_reviews, sentiments)]
+                    resp = requests.post("http://localhost:8001/sync", json={"documents": docs})
+                    if resp.status_code == 200:
+                        st.success("Vector database updated! RAG chatbot ready.")
+                    else:
+                        st.error(f"Sync failed: {resp.text}")
+                except Exception as e:
+                    st.error(f"Cannot connect to RAG API: {e}")
+                    st.info("Start FastAPI server: python run_chatbot_api.py")
 
+        st.success(f"✅ Successfully added {len(df)} feedback entries!")
 # ================= FETCH DATA =================
-
 data = fetch_feedback()
 
 if data:
@@ -203,21 +173,14 @@ if data:
 
     df["date"] = pd.to_datetime(df["date"])
 
-    # Sentiment Counts
-
     positive = (df["sentiment"] > 0).sum()
     negative = (df["sentiment"] < 0).sum()
     neutral = (df["sentiment"] == 0).sum()
+    total = len(df)
 
-    total_reviews = len(df)
-
-    # Percentages
-
-    positive_percent = round((positive / total_reviews) * 100, 2)
-    negative_percent = round((negative / total_reviews) * 100, 2)
-    neutral_percent = round((neutral / total_reviews) * 100, 2)
-
-    # Trend
+    pos_pct = round(positive / total * 100, 2)
+    neg_pct = round(negative / total * 100, 2)
+    neu_pct = round(neutral / total * 100, 2)
 
     # Existing sentiment trend
     trend = df.groupby(df["date"].dt.date)["sentiment"].mean()
@@ -268,40 +231,17 @@ if data:
         reviews.str.strip().eq("").all()
     ):
         keywords = []
-        keyword_counts = []
-
+        freq = []
     else:
+        vectorizer = CountVectorizer(stop_words="english", max_features=10)
+        X = vectorizer.fit_transform(reviews_clean)
+        keywords = vectorizer.get_feature_names_out()
+        freq = X.toarray().sum(axis=0)
 
-        vectorizer = CountVectorizer(
-            stop_words="english",
-            max_features=10
-        )
-
-        try:
-
-            X = vectorizer.fit_transform(reviews)
-
-            keywords = vectorizer.get_feature_names_out()
-            keyword_counts = X.toarray().sum(axis=0)
-
-        except ValueError as e:
-
-            if "empty vocabulary" in str(e).lower():
-                keywords = []
-                keyword_counts = []
-
-            else:
-                raise
-
-    keyword_df = pd.DataFrame({
-        "Keyword": keywords,
-        "Frequency": keyword_counts
-    })
+    keyword_df = pd.DataFrame({"Keyword": keywords, "Frequency": freq})
 
     # ================= DASHBOARD =================
-
     with tabs[0]:
-
         st.subheader("📈 Business Health Overview")
 
         if not anomalies.empty:
@@ -315,16 +255,37 @@ if data:
         c3.metric("Negative", negative)
 
         st.markdown("---")
+        st.subheader("🔍 Smart Complaint Clustering")
+        embedding_model = load_model()
 
-        # Trend Chart
+        if st.button("Find Complaint Clusters"):
+            with st.spinner("Clustering negative reviews..."):
+                negative_reviews = df[df["sentiment"] < 0]["cleaned_review"].tolist()
+                if len(negative_reviews) < 10:
+                    st.warning(f"Only {len(negative_reviews)} negative reviews. Need at least 10.")
+                else:
+                    result = run_pipeline(
+                        negative_reviews,
+                        embedding_model,
+                        min_topic_size=25,
+                        similarity_threshold=0.4,
+                        verbose=True
+                    )
+                    if result["success"]:
+                        st.success(f"✅ Found {result['n_clusters']} clusters from {result['total_negative_reviews']} reviews")
+                        for cluster in result["clusters"]:
+                            with st.expander(f"📌 {cluster['name']} ({cluster['percentage']:.1f}%) - {cluster['count']} reviews"):
+                                st.write("**Example reviews:**")
+                                for ex in cluster.get('example_reviews', [])[:3]:
+                                    st.write(f"- \"{ex}\"")
+                    else:
+                        st.error(result["message"])
 
-        col1, col2 = st.columns([2, 1])
-
+        st.markdown("---")
+        col1, col2 = st.columns([2,1])
         with col1:
-
             st.subheader("Customer Satisfaction Trend")
             st.area_chart(trend)
-
         with col2:
 
             fig3, ax3 = plt.subplots(figsize=(3.2, 3.2))
@@ -393,37 +354,81 @@ if data:
             st.pyplot(fig2)
 
         st.markdown("---")
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Feedback CSV", data=csv, file_name="feedback.csv", mime="text/csv")
 
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Download Feedback as CSV",
-            data=csv_data,
-            file_name="bizinsight_feedback.csv",
-            mime="text/csv"
-        )
-
-        st.markdown("---")
-
-        # Keywords
-
-        st.subheader("Top Customer Issues / Keywords")
-
+        st.subheader("Top Keywords")
         st.dataframe(keyword_df, use_container_width=True)
 
+    # ================= AI ASSISTANT =================
+    with tabs[1]:
+        st.subheader("🤖 AI Business Consultant")
+        user_q = st.text_input("Ask a business question", key="ai_q")
+        if user_q and st.button("Get Insight"):
+            if client:
+                with st.spinner("Analyzing..."):
+                    answer = ask_ai(user_q, df["original_review"].tolist())
+                    st.success(answer)
+            else:
+                st.warning("API key missing.")
+
     # ================= CONTROLS =================
-
     with tabs[3]:
-
         st.subheader("⚙ System Controls")
-
-        if st.button("🗑 Clear all stored feedback"):
-
+        if st.button("🗑 Clear all data"):
             clear_data()
+            st.success("All data cleared. Refresh the page.")
+            st.rerun()
+        st.warning("This action is permanent.")
 
-            st.session_state.data_cleared = True
+    # ================= RAG CHATBOT =================
+    with tabs[4]:
+        st.subheader("🧠 RAG Chatbot – Ask your reviews")
+        if "session_id" not in st.session_state:
+            st.session_state.session_id = str(uuid.uuid4())
+        if "rag_messages" not in st.session_state:
+            st.session_state.rag_messages = []
+
+        if st.button("🗑️ New Conversation"):
+            st.session_state.rag_messages = []
+            st.session_state.session_id = str(uuid.uuid4())
             st.rerun()
 
-        st.warning("This action cannot be undone.")
+        for msg in st.session_state.rag_messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+                if "sources" in msg:
+                    with st.expander("See source reviews"):
+                        for src in msg["sources"]:
+                            st.write(f"- {src[:200]}...")
+
+        user_q = st.chat_input("Ask a question about your reviews...")
+        if user_q:
+            st.session_state.rag_messages.append({"role": "user", "content": user_q})
+            with st.chat_message("user"):
+                st.write(user_q)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Searching and generating..."):
+                    try:
+                        resp = requests.post(
+                            "http://localhost:8001/chat",
+                            json={"question": user_q, "use_memory": True, "session_id": st.session_state.session_id}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            answer = data["answer"]
+                            sources = data["sources"]
+                            st.write(answer)
+                            with st.expander("📚 Source reviews"):
+                                for src in sources:
+                                    st.write(f"- {src}")
+                            st.session_state.rag_messages.append({"role": "assistant", "content": answer, "sources": sources})
+                        else:
+                            st.error(f"API error: {resp.status_code}")
+                    except Exception as e:
+                        st.error(f"Cannot connect to RAG API: {e}")
+                        st.info("Start FastAPI server: python run_chatbot_api.py")
 
 else:
-    st.info("Upload feedback to start building insights.")
+    st.info("Upload a CSV to start.")
