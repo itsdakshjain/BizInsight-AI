@@ -64,10 +64,9 @@ with tabs[1]:
     st.components.v1.html(
     """
     <script>
-        const textAreas = window.parent.document.querySelectorAll('textarea');
-        const lastTextArea = textAreas[textAreas.length - 1];
-        if (lastTextArea) {
-            lastTextArea.focus();
+        const input = parent.document.querySelector('textarea');
+        if (input) {
+            input.focus();
         }
     </script>
     """,
@@ -75,13 +74,10 @@ with tabs[1]:
 )
 
     if question:
-
-        # Show user message instantly
-
-        
+        with st.chat_message("user"):
+         st.write(question)
 
         # Save user message
-
         st.session_state.messages.append(
             {
                 "role": "user",
