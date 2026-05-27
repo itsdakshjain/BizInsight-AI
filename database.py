@@ -21,7 +21,6 @@ def get_connection():
 def initialize_database():
     with get_connection() as conn:
         cursor = conn.cursor()
-
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,5 +207,5 @@ def clear_data(user_id):
         raise sqlite3.Error(f"Clear Error: {e}")
 
 
-if __name__ == "__main__":
-    initialize_database()
+# Create table when module loads
+initialize_database()

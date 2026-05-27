@@ -1,5 +1,10 @@
 import os
 import hashlib
+import uuid
+import re
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,11 +12,11 @@ load_dotenv()
 import streamlit as st
 st.set_page_config(page_title="BizInsight AI", layout="wide")
 
-import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.feature_extraction.text import CountVectorizer
-from textblob import TextBlob
 from openai import OpenAI
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from clustering.run_clustering import run_pipeline
+from clustering.vectorize import load_model
 
 from database import (
     initialize_database,
@@ -65,8 +70,7 @@ with st.sidebar:
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 
-st.title("📊 BizInsight AI")
-st.caption("AI-powered customer intelligence platform for business growth")
+vader_analyzer = SentimentIntensityAnalyzer()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 
@@ -77,60 +81,45 @@ else:
 
 # ─── Sentiment Function ───────────────────────────────────────────────────────
 
+# ---------- Helper functions ----------
 def get_sentiment(text):
-    return TextBlob(text).sentiment.polarity
+    """VADER sentiment compound score."""
+    return vader_analyzer.polarity_scores(text)['compound']
 
-# ─── AI Assistant Tab ────────────────────────────────────────────────────────
+def clean_text_for_sentiment(text):
+    """Minimal cleaning for sentiment (lowercase, remove digits, #, extra spaces)."""
+    text = text.lower()
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'#', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-with tabs[1]:
-    st.subheader("🤖 AI Business Assistant")
-
-    question = st.text_area(
-        "Ask business insights question",
-        placeholder="Example: What are the major customer complaints?"
-    )
-
-    if st.button("Generate AI Insight"):
-
-        if client is None:
-            st.warning("AI features unavailable because API key is missing.")
-        elif question.strip() == "":
-            st.warning("Please enter a question.")
-        else:
-            data = fetch_feedback(user_id=current_user["id"])
-
-            if not data:
-                st.warning("No feedback data available.")
-            else:
-                df_ai = pd.DataFrame(data, columns=["review", "sentiment", "date"])
-                reviews_text = "\n".join(df_ai["review"].astype(str).tolist())
-
-                prompt = f"""
-You are a business intelligence assistant.
+def ask_ai(question, reviews):
+    """AI Assistant – uses first 40 reviews."""
+    context = "\n".join(reviews[:40])
+    prompt = f"""You are a business intelligence assistant.
 
 Customer reviews:
-{reviews_text}
+{context}
 
 Question:
 {question}
 """
-                try:
-                    response = client.chat.completions.create(
-                        model="tngtech/deepseek-r1t2-chimera:free",
-                        messages=[
-                            {"role": "system", "content": "You provide business intelligence insights."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.4
-                    )
-                    answer = response.choices[0].message.content
-                    st.success("AI Insight Generated")
-                    st.write(answer)
-                except Exception as e:
-                    st.error(f"Error generating AI response: {str(e)}")
-
-# ─── Data Upload Tab ──────────────────────────────────────────────────────────
-
+    try:
+        response = client.chat.completions.create(
+            model="tngtech/deepseek-r1t2-chimera:free",
+            messages=[
+                {"role": "system", "content": "You provide business intelligence insights."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating AI response: {str(e)}"
+      
+# ================= DATA UPLOAD =================
+            
 with tabs[2]:
     st.subheader("📂 Upload Customer Reviews")
 
@@ -206,7 +195,6 @@ if data:
 
     with tabs[0]:
         st.subheader("📈 Business Health Overview")
-
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Reviews", total_reviews)
         c2.metric("Positive %", f"{positive_percent}%")
@@ -214,13 +202,37 @@ if data:
         c4.metric("Neutral %", f"{neutral_percent}%")
 
         st.markdown("---")
+        st.subheader("🔍 Smart Complaint Clustering")
+        embedding_model = load_model()
+
+        if st.button("Find Complaint Clusters"):
+            with st.spinner("Clustering negative reviews..."):
+                negative_reviews = df[df["sentiment"] < 0]["review"].tolist()
+                if len(negative_reviews) < 10:
+                    st.warning(f"Only {len(negative_reviews)} negative reviews. Need at least 10.")
+                else:
+                    result = run_pipeline(
+                        negative_reviews,
+                        embedding_model,
+                        min_topic_size=25,
+                        similarity_threshold=0.4,
+                        verbose=True
+                    )
+                    if result["success"]:
+                        st.success(f"✅ Found {result['n_clusters']} clusters from {result['total_negative_reviews']} reviews")
+                        for cluster in result["clusters"]:
+                            with st.expander(f"📌 {cluster['name']} ({cluster['percentage']:.1f}%) - {cluster['count']} reviews"):
+                                st.write("**Example reviews:**")
+                                for ex in cluster.get('example_reviews', [])[:3]:
+                                    st.write(f"- \"{ex}\"")
+                    else:
+                        st.error(result["message"])
 
         col1, col2 = st.columns([2, 1])
 
         with col1:
             st.subheader("Customer Satisfaction Trend")
             st.area_chart(trend)
-
         with col2:
             fig3, ax3 = plt.subplots(figsize=(3.2, 3.2))
             ax3.pie(
@@ -245,20 +257,26 @@ if data:
             plt.close(fig2)
 
         st.markdown("---")
-
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Download Feedback as CSV",
-            data=csv_data,
-            file_name="bizinsight_feedback.csv",
-            mime="text/csv"
-        )
-
-        st.markdown("---")
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Feedback CSV", data=csv, file_name="feedback.csv", mime="text/csv")
 
         st.subheader("Top Customer Issues / Keywords")
         st.dataframe(keyword_df, use_container_width=True)
-
+        
+    with tabs[1]:
+        st.subheader("🤖 AI Business Assistant")
+        question = st.text_area("Ask a business insights question",
+                                placeholder="Example: What are the major customer complaints?")
+        if st.button("Generate AI Insight"):
+            if client is None:
+                st.warning("AI features unavailable because API key is missing.")
+            elif question.strip() == "":
+                st.warning("Please enter a question.")
+            else:
+                answer = ask_ai(question, df["review"].tolist())
+                st.success("AI Insight Generated")
+                st.write(answer)
+                
     # ─── Controls Tab ─────────────────────────────────────────────────────────
 
     with tabs[3]:
