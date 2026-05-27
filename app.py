@@ -27,12 +27,15 @@ if not api_key:
 else:
     client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
-try:
-    nltk.data.find("sentiment/vader_lexicon.zip")
-except LookupError:
-    nltk.download("vader_lexicon", quiet=True)
+@st.cache_resource
+def load_vader_analyzer():
+    try:
+        nltk.data.find("sentiment/vader_lexicon.zip")
+    except LookupError:
+        nltk.download("vader_lexicon", quiet=True)
+    return SentimentIntensityAnalyzer()
 
-vader_analyzer = SentimentIntensityAnalyzer()
+vader_analyzer = load_vader_analyzer()
 
 st.title("📊 BizInsight AI")
 st.caption("AI-powered customer intelligence platform for business growth")
@@ -83,9 +86,6 @@ Question:
         )
 
         answer = response.choices[0].message.content
-
-        st.success("AI Insight Generated")
-        st.write(answer)
 
         return answer
 
@@ -241,7 +241,9 @@ if data:
             if client:
                 with st.spinner("Analyzing..."):
                     answer = ask_ai(user_q, df["original_review"].tolist())
-                    st.success(answer)
+                    if answer:
+                        st.success("AI Insight Generated")
+                        st.write(answer)
             else:
                 st.warning("API key missing.")
 
