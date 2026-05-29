@@ -14,7 +14,8 @@ st.set_page_config(page_title="BizInsight AI", layout="wide")
 from sklearn.feature_extraction.text import CountVectorizer
 from database import insert_feedback, fetch_feedback, clear_data
 from openai import OpenAI
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from clustering.run_clustering import run_pipeline
 from clustering.vectorize import load_model
 
@@ -26,9 +27,15 @@ if not api_key:
 else:
     client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
-vader_analyzer = SentimentIntensityAnalyzer()
+@st.cache_resource
+def load_vader_analyzer():
+    try:
+        nltk.data.find("sentiment/vader_lexicon.zip")
+    except LookupError:
+        nltk.download("vader_lexicon", quiet=True)
+    return SentimentIntensityAnalyzer()
 
-vader_analyzer = SentimentIntensityAnalyzer()
+vader_analyzer = load_vader_analyzer()
 
 st.title("📊 BizInsight AI")
 st.caption("AI-powered customer intelligence platform for business growth")
@@ -50,18 +57,19 @@ def clean_text_for_sentiment(text):
 
 def ask_ai(question, reviews):
     """Legacy AI Assistant – uses first 40 reviews."""
+
     context = "\n".join(reviews[:40])
+
     prompt = f"""You are a business intelligence assistant.
 
 Customer reviews:
 {context}
 
-    Question:
-    {question}
-    """
+Question:
+{question}
+"""
 
     try:
-
         response = client.chat.completions.create(
             model="tngtech/deepseek-r1t2-chimera:free",
             messages=[
@@ -79,47 +87,17 @@ Customer reviews:
 
         answer = response.choices[0].message.content
 
-        st.success("AI Insight Generated")
-        st.write(answer)
+        return answer
 
     except Exception as e:
         st.error(f"Error generating AI response: {str(e)}")
-
+        return None
 # ================= DATA UPLOAD =================
 
 # ================= DATA UPLOAD =================
 with tabs[2]:
     st.subheader("📂 Upload Customer Reviews")
-
-    # ── Manual input ──────────────────────────────────────────────────────────
-    st.markdown("#### ✍️ Try a Single Review")
-    manual_review = st.text_area("Type a review to analyze", placeholder="e.g. The product broke after two days, very disappointed.")
-
-    if st.button("Analyze Review"):
-        if manual_review.strip():
-            with st.spinner("Analyzing..."):
-                result = analyze(manual_review.strip())
-            label = result["label"]
-            score = result["score"]
-
-            color = {"Positive": "🟢", "Neutral": "🟡", "Negative": "🔴"}.get(label, "⚪")
-            st.markdown(f"**Sentiment:** {color} {label}  &nbsp;&nbsp; **Score:** `{score:+.4f}`")
-            st.caption(f"VADER: `{result['vader_score']:+.4f}`  |  BERT: `{result['bert_score']:+.4f}`")
-
-            if st.checkbox("Save this review to database"):
-                insert_feedback(manual_review.strip(), score)
-                st.success("Saved!")
-        else:
-            st.warning("Please type a review first.")
-
-    st.markdown("---")
-
-    # ── CSV upload ────────────────────────────────────────────────────────────
-    uploaded_file = st.file_uploader(
-        "Upload CSV with review column",
-        type="csv",
-        key = "uploader_2"
-    )
+    uploaded_file = st.file_uploader("Upload CSV with review column", type="csv", key="csv_uploader")
 
     if uploaded_file:
         if st.button("Process and Upload Data"):
@@ -263,7 +241,9 @@ if data:
             if client:
                 with st.spinner("Analyzing..."):
                     answer = ask_ai(user_q, df["original_review"].tolist())
-                    st.success(answer)
+                    if answer:
+                        st.success("AI Insight Generated")
+                        st.write(answer)
             else:
                 st.warning("API key missing.")
 
