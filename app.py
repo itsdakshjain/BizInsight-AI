@@ -18,7 +18,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Image
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime
 import io
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from clustering.run_clustering import run_pipeline
@@ -57,12 +56,12 @@ current_user = get_current_user()
 
 @st.cache_resource
 def get_ai_client():
-    api_key = os.getenv("OPENROUTER_API_KEY")   
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return None
     return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
-client = get_ai_client() 
+client = get_ai_client()
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +73,8 @@ with st.sidebar:
         logout()
         st.rerun()
 
-# ─── Header ───────────────────────────────────────────────────────────────────
+# ─── Vader ────────────────────────────────────────────────────────────────────
+
 @st.cache_resource
 def load_vader_analyzer():
     try:
@@ -92,15 +92,12 @@ if current_user["role"] == "admin":
 else:
     tabs = st.tabs(["📊 Dashboard", "🤖 AI Assistant", "📂 Data Upload", "⚙ Controls"])
 
-# ─── Sentiment Function ───────────────────────────────────────────────────────
+# ─── Helper Functions ─────────────────────────────────────────────────────────
 
-# ---------- Helper functions ----------
 def get_sentiment(text):
-    """VADER sentiment compound score."""
     return vader_analyzer.polarity_scores(text)['compound']
 
 def clean_text_for_sentiment(text):
-    """Minimal cleaning for sentiment (lowercase, remove digits, #, extra spaces)."""
     text = text.lower()
     text = re.sub(r'\d+', '', text)
     text = re.sub(r'#', '', text)
@@ -108,86 +105,11 @@ def clean_text_for_sentiment(text):
     return text
 
 def ask_ai(question, reviews):
-    """AI Assistant – uses first 40 reviews."""
     context = "\n".join(reviews[:40])
-
     prompt = f"""You are a business intelligence assistant.
 
 Customer reviews:
 {context}
-
-    Question:
-    {question}
-    """
-
-                try:
-
-                    response = client.chat.completions.create(
-                        model="tngtech/deepseek-r1t2-chimera:free",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You provide business intelligence insights."
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        temperature=0.4
-                    )
-
-                    answer = response.choices[0].message.content
-
-                    st.success("AI Insight Generated")
-                    st.write(answer)
-
-                except Exception as e:
-                    st.error(f"Error generating AI response: {str(e)}")
-
-
-def make_pdf(df, trend, keywords):
-    buffer = io.BytesIO()
-    pdf = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
-    content = []
-
-    # Title and date
-    content.append(Paragraph("BizInsight AI Report", styles["Title"]))
-    content.append(Paragraph("Generated: " + str(datetime.now().strftime("%Y-%m-%d %H:%M")), styles["Normal"]))
-
-    # Metrics
-    content.append(Paragraph("Total Reviews: " + str(len(df)), styles["Normal"]))
-    content.append(Paragraph("Positive: " + str((df["sentiment"] > 0).sum()), styles["Normal"]))
-    content.append(Paragraph("Negative: " + str((df["sentiment"] < 0).sum()), styles["Normal"]))
-
-    # Line chart
-    fig1, ax1 = plt.subplots()
-    ax1.plot(trend.index, trend.values)
-    ax1.set_title("Sentiment Trend")
-    img1 = io.BytesIO()
-    fig1.savefig(img1, format="png")
-    plt.close(fig1)
-    img1.seek(0)
-    content.append(Image(img1, width=400, height=200))
-
-    # Bar chart
-    fig2, ax2 = plt.subplots()
-    ax2.bar(["Positive", "Negative"], [(df["sentiment"] > 0).sum(), (df["sentiment"] < 0).sum()])
-    ax2.set_title("Positive vs Negative")
-    img2 = io.BytesIO()
-    fig2.savefig(img2, format="png")
-    plt.close(fig2)
-    img2.seek(0)
-    content.append(Image(img2, width=400, height=200))
-
-    # Keywords
-    content.append(Paragraph("Top Keywords: " + ", ".join(keywords), styles["Normal"]))
-
-    pdf.build(content)
-    buffer.seek(0)
-    return buffer.read()
-
 
 Question:
 {question}
@@ -204,12 +126,46 @@ Question:
         return response.choices[0].message.content
     except Exception as e:
         return f"Error generating AI response: {str(e)}"
-      
+
+def make_pdf(df, trend, keywords):
+    buffer = io.BytesIO()
+    pdf = SimpleDocTemplate(buffer)
+    styles = getSampleStyleSheet()
+    content = []
+
+    content.append(Paragraph("BizInsight AI Report", styles["Title"]))
+    content.append(Paragraph("Generated: " + str(datetime.now().strftime("%Y-%m-%d %H:%M")), styles["Normal"]))
+    content.append(Paragraph("Total Reviews: " + str(len(df)), styles["Normal"]))
+    content.append(Paragraph("Positive: " + str((df["sentiment"] > 0).sum()), styles["Normal"]))
+    content.append(Paragraph("Negative: " + str((df["sentiment"] < 0).sum()), styles["Normal"]))
+
+    fig1, ax1 = plt.subplots()
+    ax1.plot(trend.index, trend.values)
+    ax1.set_title("Sentiment Trend")
+    img1 = io.BytesIO()
+    fig1.savefig(img1, format="png")
+    plt.close(fig1)
+    img1.seek(0)
+    content.append(Image(img1, width=400, height=200))
+
+    fig2, ax2 = plt.subplots()
+    ax2.bar(["Positive", "Negative"], [(df["sentiment"] > 0).sum(), (df["sentiment"] < 0).sum()])
+    ax2.set_title("Positive vs Negative")
+    img2 = io.BytesIO()
+    fig2.savefig(img2, format="png")
+    plt.close(fig2)
+    img2.seek(0)
+    content.append(Image(img2, width=400, height=200))
+
+    content.append(Paragraph("Top Keywords: " + ", ".join(keywords), styles["Normal"]))
+    pdf.build(content)
+    buffer.seek(0)
+    return buffer.read()
+
 # ================= DATA UPLOAD =================
-            
+
 with tabs[2]:
     st.subheader("📂 Upload Customer Reviews")
-
     uploaded_file = st.file_uploader("Upload CSV with review column", type="csv")
 
     if uploaded_file:
@@ -230,10 +186,8 @@ with tabs[2]:
                     st.warning("No valid reviews found after cleaning. Nothing to process.")
                 else:
                     df["sentiment"] = df["review"].apply(get_sentiment)
-
                     reviews_data = list(zip(df["review"], df["sentiment"]))
                     insert_feedback_bulk(reviews_data, user_id=current_user["id"])
-
                     st.session_state["last_upload_hash"] = file_hash
                     st.success(f"{len(df)} feedback entries successfully added!")
         else:
@@ -249,17 +203,16 @@ if data:
 
     positive = (df["sentiment"] > 0).sum()
     negative = (df["sentiment"] < 0).sum()
-    neutral = (df["sentiment"] == 0).sum()
+    neutral  = (df["sentiment"] == 0).sum()
     total_reviews = len(df)
 
     positive_percent = round((positive / total_reviews) * 100, 2)
     negative_percent = round((negative / total_reviews) * 100, 2)
-    neutral_percent = round((neutral / total_reviews) * 100, 2)
+    neutral_percent  = round((neutral  / total_reviews) * 100, 2)
 
     trend = df.groupby(df["date"].dt.date)["sentiment"].mean()
 
     reviews = df["review"].dropna()
-
     if reviews.empty or (reviews.apply(lambda x: isinstance(x, str)).all() and reviews.str.strip().eq("").all()):
         keywords = []
         keyword_counts = []
@@ -286,105 +239,78 @@ if data:
         c1.metric("Total Reviews", total_reviews)
         c2.metric("Positive %", f"{positive_percent}%")
         c3.metric("Negative %", f"{negative_percent}%")
-        c4.metric("Neutral %", f"{neutral_percent}%")
+        c4.metric("Neutral %",  f"{neutral_percent}%")
 
         st.markdown("---")
-        st.subheader("🔍 Smart Complaint Clustering")
+        st.subheader("🔍 Smart Review Clustering")
         embedding_model = load_model()
 
-        if st.button("Find Complaint Clusters"):
-            with st.spinner("Clustering negative reviews..."):
-                negative_reviews = df[df["sentiment"] < 0]["review"].tolist()
-                if len(negative_reviews) < 10:
-                    st.warning(f"Only {len(negative_reviews)} negative reviews. Need at least 10.")
+        cluster_mode = st.radio(
+            "Cluster by sentiment:",
+            options=["Negative", "Positive"],
+            horizontal=True,
+            help="Negative: surfaces complaint themes. Positive: surfaces what customers love."
+        )
+
+        button_label = "Find Complaint Clusters" if cluster_mode == "Negative" else "Find Positive Themes"
+
+        if st.button(button_label):
+            if cluster_mode == "Negative":
+                selected_reviews = df[df["sentiment"] < 0]["review"].tolist()
+                spinner_text = "Clustering negative reviews..."
+                empty_warning = f"Only {len(selected_reviews)} negative reviews. Need at least 10."
+                success_label = "complaints"
+                icon = "📌"
+                mode_arg = "negative"
+            else:
+                selected_reviews = df[df["sentiment"] > 0]["review"].tolist()
+                spinner_text = "Clustering positive reviews..."
+                empty_warning = f"Only {len(selected_reviews)} positive reviews. Need at least 10."
+                success_label = "positive themes"
+                icon = "⭐"
+                mode_arg = "positive"
+
+            with st.spinner(spinner_text):
+                if len(selected_reviews) < 10:
+                    st.warning(empty_warning)
                 else:
+                    dynamic_min_topic_size = max(3, len(selected_reviews) // 5)
                     result = run_pipeline(
-                        negative_reviews,
+                        selected_reviews,
                         embedding_model,
-                        min_topic_size=25,
+                        min_topic_size=dynamic_min_topic_size,
                         similarity_threshold=0.4,
-                        verbose=True
+                        verbose=True,
+                        mode=mode_arg
                     )
                     if result["success"]:
-                        st.success(f"✅ Found {result['n_clusters']} clusters from {result['total_negative_reviews']} reviews")
+                        st.success(f"✅ Found {result['n_clusters']} {success_label} from {result['total_negative_reviews']} reviews")
                         for cluster in result["clusters"]:
-                            with st.expander(f"📌 {cluster['name']} ({cluster['percentage']:.1f}%) - {cluster['count']} reviews"):
+                            with st.expander(f"{icon} {cluster['name']} ({cluster['percentage']:.1f}%) - {cluster['count']} reviews"):
                                 st.write("**Example reviews:**")
                                 for ex in cluster.get('example_reviews', [])[:3]:
                                     st.write(f"- \"{ex}\"")
                     else:
                         st.error(result["message"])
 
+        st.markdown("---")
         col1, col2 = st.columns([2, 1])
-
         with col1:
             st.subheader("Customer Satisfaction Trend")
             st.area_chart(trend)
         with col2:
-
-            fig3, ax3 = plt.subplots(figsize=(3.2, 3.2))
-
             fig3, ax3 = plt.subplots(figsize=(3.2, 3.2))
             ax3.pie(
                 [positive, negative, neutral],
                 labels=["Positive", "Negative", "Neutral"],
                 autopct="%1.1f%%"
             )
-
             st.pyplot(fig3)
             plt.close(fig3)
 
-            st.markdown("---")
-
         st.markdown("---")
-
         pdf_file = make_pdf(df, trend, list(keywords))
         st.download_button("Download PDF Report", pdf_file, file_name="report.pdf", mime="application/pdf")
-
-        # Histogram
-
-        st.subheader("📊 Sentiment Score Distribution")
-
-        col_small, _ = st.columns([1.5, 4])
-
-        with col_small:
-
-            fig2, ax2 = plt.subplots(figsize=(2.8, 2.1))
-
-            ax2.hist(df["sentiment"], bins=10)
-
-            ax2.set_xlabel("Score", fontsize=8)
-            ax2.set_ylabel("Freq", fontsize=8)
-
-            ax2.tick_params(axis='both', labelsize=7)
-
-            st.pyplot(fig2)
-
-        st.markdown("---")
-
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Download Feedback as CSV",
-            data=csv_data,
-            file_name="bizinsight_feedback.csv",
-            mime="text/csv"
-        )
-            fig, ax = plt.subplots()
-            ax.pie([positive, negative, neutral], labels=["Positive","Negative","Neutral"], autopct="%1.1f%%")
-            st.pyplot(fig)
-            plt.close(fig)
-
-        st.subheader("📊 Sentiment Distribution")
-        fig2, ax2 = plt.subplots()
-        ax2.hist(df["sentiment"], bins=20)
-        ax2.set_xlabel("Sentiment Score")
-        ax2.set_ylabel("Frequency")
-        st.pyplot(fig2)
-        plt.close(fig2)
-            st.pyplot(fig3)
-            plt.close(fig3)
-
-        st.markdown("---")
 
         st.subheader("📊 Sentiment Score Distribution")
         col_small, _ = st.columns([1.5, 4])
@@ -398,12 +324,19 @@ if data:
             plt.close(fig2)
 
         st.markdown("---")
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Download Feedback CSV", data=csv, file_name="feedback.csv", mime="text/csv")
+        csv_data = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Download Feedback as CSV",
+            data=csv_data,
+            file_name="bizinsight_feedback.csv",
+            mime="text/csv"
+        )
 
         st.subheader("Top Customer Issues / Keywords")
         st.dataframe(keyword_df, use_container_width=True)
-        
+
+    # ─── AI Assistant Tab ─────────────────────────────────────────────────────
+
     with tabs[1]:
         st.subheader("🤖 AI Business Assistant")
         question = st.text_area("Ask a business insights question",
@@ -414,15 +347,15 @@ if data:
             elif question.strip() == "":
                 st.warning("Please enter a question.")
             else:
-                answer = ask_ai(question, df["review"].tolist())
-                st.success("AI Insight Generated")
-                st.write(answer)
-                
+                with st.spinner("Analyzing..."):
+                    answer = ask_ai(question, df["review"].tolist())
+                    st.success("AI Insight Generated")
+                    st.write(answer)
+
     # ─── Controls Tab ─────────────────────────────────────────────────────────
 
     with tabs[3]:
         st.subheader("⚙ System Controls")
-
         st.warning("⚠️ Clearing data permanently deletes all your stored reviews. This cannot be undone.")
 
         if "confirm_clear" not in st.session_state:
@@ -453,7 +386,6 @@ else:
 if current_user["role"] == "admin":
     with tabs[4]:
         st.subheader("👑 Admin Panel")
-
         st.markdown("### Registered Users")
         users = fetch_all_users()
 
@@ -478,7 +410,6 @@ if current_user["role"] == "admin":
 
         st.markdown("---")
         st.markdown("### All Feedback Across Users")
-
         all_feedback = fetch_all_feedback()
 
         if not all_feedback:

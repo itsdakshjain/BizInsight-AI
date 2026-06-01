@@ -32,6 +32,20 @@ CATEGORY_EXAMPLES = {
     "Return/Refund": "return refund money back reimbursement credit not received"
 }
 
+#postive categories with sentences
+POSITIVE_CATEGORY_EXAMPLES = {
+    "Fast Delivery": "fast delivery quick shipping arrived early on time speedy dispatch",
+    "Great Value": "worth every penny great price affordable cheap best value money",
+    "Excellent Support": "helpful support team resolved quickly friendly agent amazing service",
+    "Product Quality": "great quality durable well built premium excellent material long lasting",
+    "Easy to Use": "easy to use intuitive simple setup user friendly smooth experience",
+    "Good Packaging": "well packaged secure packaging arrived safe neat presentation",
+    "Accurate Description": "exactly as described matches photo true to size accurate listing",
+    "Seamless Checkout": "easy checkout smooth purchase fast payment simple ordering process",
+    "Loyalty & Trust": "trusted brand reliable consistent always satisfied repeat customer",
+    "Great Experience": "amazing experience highly recommend love it five stars happy satisfied"
+}
+
 def make_unique_business_name(examples: List[str]) -> str:
     """
     Generate a short business name directly from the example reviews.
@@ -91,7 +105,8 @@ def make_unique_business_name(examples: List[str]) -> str:
 def map_cluster_to_category(
     cluster_examples: List[str],
     embedding_model: SentenceTransformer,
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.7,
+    mode: str = "negative"
 ) -> Optional[str]:
     """
     Map a cluster (using its example reviews) to one of the standard categories
@@ -100,20 +115,26 @@ def map_cluster_to_category(
     """
     if not cluster_examples or embedding_model is None:
         return None
+
+    category_dict = POSITIVE_CATEGORY_EXAMPLES if mode == "positive" else CATEGORY_EXAMPLES
+    cache_key = f"_category_embeddings_{mode}"
     
     # Encode the cluster's representative text (first example)
     cluster_embedding = embedding_model.encode([cluster_examples[0]])[0]
     
     # Pre-compute category embeddings (cache if needed)
-    if not hasattr(map_cluster_to_category, "_category_embeddings"):
-        map_cluster_to_category._category_embeddings = {}
-        for cat, sentence in CATEGORY_EXAMPLES.items():
-            map_cluster_to_category._category_embeddings[cat] = embedding_model.encode([sentence])[0]
+    if not hasattr(map_cluster_to_category,cache_key):
+        embeddings = {}
+        for cat, sentence in category_dict.items():
+            embeddings[cat] = embedding_model.encode([sentence])[0]
+        setattr(map_cluster_to_category,cache_key,embeddings)
+
+    cached_embeddings = getattr(map_cluster_to_category,cache_key)
     
     # Find the category with highest similarity
     best_cat = None
     best_sim = -1.0
-    for cat, cat_emb in map_cluster_to_category._category_embeddings.items():
+    for cat, cat_emb in cached_embeddings.items():
         sim = cosine_similarity([cluster_embedding], [cat_emb])[0][0]
         if sim > best_sim:
             best_sim = sim
@@ -155,7 +176,8 @@ def run_pipeline(
     embedding_model: Optional[SentenceTransformer] = None,
     min_topic_size: int = 10, # minimum number of reviews per cluster
     similarity_threshold: float = 0.4, # lower threshold for category mapping to allow more clusters to be categorized, can be tuned based on dataset
-    verbose: bool = True 
+    verbose: bool = True ,
+    mode : str = "negative"
 ) -> Dict:
     """
     Main clustering pipeline using BERTopic, then maps clusters to standard categories
@@ -196,7 +218,7 @@ def run_pipeline(
     vectorizer_model = CountVectorizer(
         stop_words="english",
         ngram_range=(1, 2), # unigrams and bigrams for better topic representation, can be tuned based on dataset size and diversity
-        max_df=0.8, # ignore words that appear in more than 80% of documents to focus on more distinctive terms, can be tuned based on dataset size and diversity
+        max_df=1.0, # keep all words regardless of frequency for small datasets, can be tuned based on dataset size and diversity
         min_df=1 # include words that appear in at least 1 document, can be increased for larger datasets to reduce noise
     )
     
@@ -256,13 +278,21 @@ def run_pipeline(
         original_name = make_unique_business_name(examples)
         
         # Map to standard category using embedding similarity
-        mapped_cat = map_cluster_to_category(examples, embedding_model, similarity_threshold)
+        mapped_cat = map_cluster_to_category(examples, embedding_model, similarity_threshold,mode=mode)
         
         # If mapped to a standard category, use that name; otherwise use the original generated name
         if mapped_cat:
-            cluster_name = f"{mapped_cat} Issues"
+            cluster_name = mapped_cat if mode == "positive" else f"{mapped_cat} Issues"
         else:
-            cluster_name = original_name
+            if mode == "positive":
+                # Strip negative suffixes appended by make_unique_business_name
+                base_name = original_name
+                for suffix in [" Issues", " Error", " Delay"]:
+                    if base_name.endswith(suffix):
+                        base_name = base_name[:-len(suffix)]
+                cluster_name = f"{base_name} Praise"
+            else:
+                cluster_name = original_name
         
         # Add cluster info to the list
         clusters.append({
@@ -301,8 +331,8 @@ def run_pipeline(
     
     return {
         "success": True,
-        "message": f"Found {n_topics} complaint topics with {noise_percentage:.1f}% noise",
-        "total_negative_reviews": total_reviews,
+        "message": f"Found {n_topics} {'positive' if mode == 'positive' else 'complaint'} topics with {noise_percentage:.1f}% noise",
+        "total_reviews": total_reviews,
         "n_clusters": n_topics,
         "n_topics": n_topics,
         "labels": topics,
