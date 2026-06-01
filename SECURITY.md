@@ -28,7 +28,7 @@ receives security fixes.
 ### How to Report
 
 1. **Open a GitHub Security Advisory** (preferred):
-   - Go to the repository, click the **Security** tab, then **Advisories**, then **New draft advisory**
+   - Go to the repository, click the **Security** tab, then **Advisories**, then **Report a vulnerability**
    - Describe the vulnerability in detail
 
 2. **Or contact the maintainer directly via email:**
