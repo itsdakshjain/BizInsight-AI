@@ -73,7 +73,6 @@ If you experience or witness unacceptable behavior, please report it by:
 - Contacting the project maintainer directly via email at:
   [prateekiiitg56@gmail.com](mailto:prateekiiitg56@gmail.com)
 
-
 All reports will be reviewed and investigated promptly and fairly. The privacy
 and security of the reporter will be respected at all times.
 
