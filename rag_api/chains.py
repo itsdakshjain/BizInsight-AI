@@ -4,7 +4,7 @@ from langchain_classic.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
-
+import time
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
@@ -54,7 +54,9 @@ class RAGChainManager:
         )
 
         self._qa_chain = None
-        self._conv_chains = {}  
+        self._conv_chains = {}
+        self._chain_last_access = {}
+        self._session_timeout = 30 * 60  # 30 minutes
 
         # --- INITIALIZE THE RE-RANKER MODEL (Done once on startup) ---
         print("🧠 Loading Re-Ranker Model... (This may take a moment on first run)")
@@ -89,7 +91,7 @@ class RAGChainManager:
     # The get_conversational_chain method creates a ConversationalRetrievalChain that maintains conversation history and also uses multi-query expansion and re-ranking for enhanced retrieval during chat interactions. It constructs a unique chain key based on the session ID and search filter to manage multiple conversational chains. Each chain incorporates a ConversationBufferMemory to keep track of the chat history, and it uses the same multi-query and re-ranking retrieval strategy as the get_qa_chain method to ensure that the LLM's responses are based on the most relevant documents from the vector store.
     def get_conversational_chain(self, session_id: str, search_filter=None):
         chain_key = f"{session_id}_{str(search_filter)}" # Unique key for this conversational chain based on session and filter
-        
+        self._cleanup_expired_chains()
         # If a chain for this session and filter doesn't exist, we create it. This allows us to maintain separate conversation histories and retrieval contexts for different users or different types of queries (e.g., positive vs negative sentiment).
         if chain_key not in self._conv_chains:
             # We set up a ConversationBufferMemory to keep track of the chat history for this session
@@ -121,4 +123,18 @@ class RAGChainManager:
                 verbose=False
             )
             self._conv_chains[chain_key] = chain # Store the chain in the dictionary with its unique key for future retrieval
+        self._chain_last_access[chain_key] = time.time()
         return self._conv_chains[chain_key] # Return the conversational chain for this session.
+    def _cleanup_expired_chains(self):
+        """Remove inactive conversational chains."""
+        now = time.time()
+
+        expired = [
+            key
+            for key, last_access in self._chain_last_access.items()
+            if now - last_access > self._session_timeout
+        ]
+
+        for key in expired:
+            self._conv_chains.pop(key, None)
+            self._chain_last_access.pop(key, None)
