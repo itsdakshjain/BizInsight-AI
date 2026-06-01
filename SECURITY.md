@@ -15,10 +15,10 @@ responsible disclosure is critical.
 Only the latest version of the `main` branch is actively maintained and
 receives security fixes.
 
-| Version / Branch | Supported |
-| ---------------- | --------- |
-| `main` (latest)  | Yes       |
-| Older branches   | No        |
+| Version / Release | Supported |
+| ----------------- | --------- |
+| `main` (latest)   | Yes       |
+| < v1.0            | No        |
 
 ## Reporting a Vulnerability
 
@@ -28,9 +28,8 @@ receives security fixes.
 ### How to Report
 
 1. **Open a GitHub Security Advisory** (preferred):
-   - Go to the repository, click the **Security** tab, then **Advisories**, then **Report a vulnerability**
-   - Describe the vulnerability in detail
-
+   - Go to the repository, click the **Security** tab, then **Advisories**, then **Report a vulnerability** (if enabled )
+- Describe the vulnerability in detail
 2. **Or contact the maintainer directly via email:**
    <prateekiiitg56@gmail.com>
 
@@ -81,7 +80,7 @@ within 48 hours, please follow up.
 - Never commit `.env` files or API keys to the repository
 - Use `.env.example` for environment variable templates
 - Always use `python-dotenv` to load secrets from environment variables
-- Validate and sanitize all user-uploaded CSV inputs in `app.py`
+- Always validate user-uploaded CSV inputs — check for required columns, drop empty rows, and guard against CSV formula injection in `app.py`
 - Keep dependencies up to date by running `pip install -r requirements.txt` regularly
 - Report any accidental secret exposure immediately
 
