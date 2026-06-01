@@ -20,7 +20,6 @@ diverse, inclusive, and healthy community.
 
 - Using welcoming and inclusive language
 - Being respectful of differing viewpoints and experiences
-- Gracefully accepting constructive criticism
 - Focusing on what is best for the community
 - Showing empathy and kindness toward other community members
 - Giving and gracefully accepting constructive feedback
