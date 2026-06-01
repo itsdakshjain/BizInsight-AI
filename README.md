@@ -36,7 +36,7 @@ Built as a real-world business intelligence tool using Python, Streamlit, and ad
 - Streamlit  
 - Pandas, Matplotlib  
 - Scikit-learn  
-- **VADER** (sentiment analysis)  
+- **VADER (NLTK)** (sentiment analysis)  
 - **BERTopic** + **HDBSCAN** + **UMAP** (clustering)  
 - **Sentence‑Transformers** (`all-mpnet-base-v2`)  
 - **LangChain** (RAG pipeline)  
@@ -140,7 +140,7 @@ streamlit
 pandas
 matplotlib
 scikit-learn
-vaderSentiment
+nltk
 sentence-transformers
 langchain
 langchain-community
@@ -151,7 +151,6 @@ hdbscan
 umap-learn
 fastapi
 uvicorn
-nltk
 python-dotenv
 openai
 requests
@@ -236,7 +235,7 @@ streamlit
 pandas
 matplotlib
 scikit-learn
-vaderSentiment
+nltk
 bertopic
 hdbscan
 umap-learn
