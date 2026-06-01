@@ -1,4 +1,5 @@
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from transformers import pipeline
 import numpy as np
 import re
@@ -24,6 +25,11 @@ def _concession_penalty(text: str) -> float:
                     return after_score * 0.5  # penalty for negative clause after concession
     return 0.0
 
+
+try:
+    nltk.data.find("sentiment/vader_lexicon.zip")
+except LookupError:
+    nltk.download("vader_lexicon", quiet=True)
 
 vader = SentimentIntensityAnalyzer()
 
