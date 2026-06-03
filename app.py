@@ -184,12 +184,27 @@ with tabs[2]:
 
                 if df.empty:
                     st.warning("No valid reviews found after cleaning. Nothing to process.")
+
                 else:
-                    df["sentiment"] = df["review"].apply(get_sentiment)
-                    reviews_data = list(zip(df["review"], df["sentiment"]))
-                    insert_feedback_bulk(reviews_data, user_id=current_user["id"])
+                    with st.spinner("Analyzing reviews, please wait..."):
+                        total = len(df)
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+
+                        sentiments = []
+                        for i, review in enumerate(df["review"]):
+                            sentiments.append(get_sentiment(review))
+                            progress_bar.progress((i + 1) / total)
+                            status_text.text(f"Processing review {i + 1} of {total}...")
+
+                        df["sentiment"] = sentiments
+                        reviews_data = list(zip(df["review"], df["sentiment"]))
+                        insert_feedback_bulk(reviews_data, user_id=current_user["id"])
+
+                    progress_bar.empty()
+                    status_text.empty()
                     st.session_state["last_upload_hash"] = file_hash
-                    st.success(f"{len(df)} feedback entries successfully added!")
+                    st.success(f"✅ {total} reviews analyzed and saved successfully!")
         else:
             st.info("This file has already been uploaded in this session.")
 
@@ -349,8 +364,8 @@ if data:
             else:
                 with st.spinner("Analyzing..."):
                     answer = ask_ai(question, df["review"].tolist())
-                    st.success("AI Insight Generated")
-                    st.write(answer)
+                st.success("✅ AI Insight Generated")
+                st.write(answer)
 
     # ─── Controls Tab ─────────────────────────────────────────────────────────
 
