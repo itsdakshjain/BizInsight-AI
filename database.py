@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def get_connection():
     conn = sqlite3.connect(DB_NAME)
+
+    # Enforce SQLite foreign key constraints for all connections
+    conn.execute("PRAGMA foreign_keys = ON")
+
     try:
         yield conn
     finally:
