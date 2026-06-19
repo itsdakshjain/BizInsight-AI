@@ -43,7 +43,14 @@ def validate_password_strength(password):
     return True, None
 
 
-def register(username, email, password, confirm_password):
+def register(
+    username,
+    email,
+    password,
+    confirm_password,
+    workspace_type,
+    workspace_id
+):
     username = username.strip()
     email = email.strip()
     if not username:
@@ -62,8 +69,19 @@ def register(username, email, password, confirm_password):
 
     if password != confirm_password:
         return False, "Passwords do not match."
+    
+    if workspace_type == "corporate":
 
-    result = create_user(username, email, password)
+        if not workspace_id:
+            return False, "Corporate ID is required."
+
+    result = create_user(
+    username=username,
+    email=email,
+    password=password,
+    workspace_type=workspace_type,
+    workspace_id=workspace_id
+    )
 
     if result == "USERNAME_EXISTS":
         return False, "Username already exists."
@@ -120,6 +138,19 @@ def show_auth_page():
                 key="reg_email"
             )
 
+            workspace_type = st.radio(
+                "Workspace Type",
+                ["Personal", "Corporate"]
+            )
+
+            workspace_id = None
+
+            if workspace_type == "Corporate":
+                workspace_id = st.text_input(
+                    "Corporate Workspace ID",
+                    placeholder="Enter company workspace ID"
+                )
+
             new_password = st.text_input(
                 "Password",
                 type="password",
@@ -145,7 +176,9 @@ def show_auth_page():
                         new_username,
                         email,
                         new_password,
-                        confirm_password
+                        confirm_password,
+                        workspace_type.lower(),
+                        workspace_id
                     )
 
                     if error:
