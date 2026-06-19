@@ -173,72 +173,52 @@ def clean_text_for_sentiment(text):
 
 def ask_ai(question, reviews):
     context = "\n".join(reviews[:40])
+
     prompt = f"""You are a business intelligence assistant.
 
 Customer reviews:
 {context}
 
-    Question:
-    {question}
-    """
-
-                try:
-
-                    response = client.chat.completions.create(
-                        model="tngtech/deepseek-r1t2-chimera:free",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You provide business intelligence insights."
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        temperature=0.4
-                    )
-
-                    answer = response.choices[0].message.content
-
-                    st.success("AI Insight Generated")
-                    st.write(answer)
-
-                except AuthenticationError:
-                    logger.exception("Authentication failure during AI API request")
-                    st.error("Authentication failed. Please check API configuration.")
-                except RateLimitError:
-                    logger.exception("AI API rate limit exceeded")
-                    st.error("Rate limit exceeded. Please try again later.")
-                except APITimeoutError:
-                    logger.exception("AI API request timed out")
-                    st.error("Request timed out. Please retry.")
-                except APIConnectionError:
-                    logger.exception("AI API connection failure")
-                    st.error("Network connection issue. Please check connectivity.")
-                except APIError:
-                    logger.exception("General AI API error occurred")
-                    st.error("AI service is temporarily unavailable.")
-                except Exception:
-                    logger.exception("Unexpected error during AI request")
-                    st.error("Unable to generate AI insight at the moment.")
-
 Question:
 {question}
 """
+
     try:
         response = client.chat.completions.create(
             model="tngtech/deepseek-r1t2-chimera:free",
             messages=[
-                {"role": "system", "content": "You provide business intelligence insights."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You provide business intelligence insights."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             temperature=0.4
         )
+
         return response.choices[0].message.content
+
+    except AuthenticationError:
+        return "Authentication failed."
+
+    except RateLimitError:
+        return "Rate limit exceeded."
+
+    except APITimeoutError:
+        return "Request timed out."
+
+    except APIConnectionError:
+        return "Connection error."
+
+    except APIError:
+        return "AI service unavailable."
+
     except Exception as e:
         return f"Error generating AI response: {str(e)}"
-
+    
 def make_pdf(df, trend, keywords):
     buffer = io.BytesIO()
     pdf = SimpleDocTemplate(buffer)
@@ -421,51 +401,38 @@ if data:
 
     reviews = df["review"].dropna()
 
-    if reviews.empty or (
-        reviews.apply(lambda x: isinstance(x, str)).all() and
-        reviews.str.strip().eq("").all()
-    ):
-    reviews = df["review"].dropna()
-    if reviews.empty or (reviews.apply(lambda x: isinstance(x, str)).all() and reviews.str.strip().eq("").all()):
-        keywords = []
-        keyword_counts = []
-    else:
-        vectorizer = CountVectorizer(stop_words="english", max_features=10)
-        try:
-            X = vectorizer.fit_transform(reviews)
-            keywords = vectorizer.get_feature_names_out()
-            keyword_counts = X.toarray().sum(axis=0)
-            keyword_df = pd.DataFrame({
-                "Keyword": keywords,
-                "Frequency": keyword_counts
-            })
+if reviews.empty or (
+    reviews.apply(lambda x: isinstance(x, str)).all()
+    and reviews.str.strip().eq("").all()
+):
+    keywords = []
+    keyword_counts = []
 
-            ALERT_THRESHOLD = 40
+else:
+    vectorizer = CountVectorizer(
+        stop_words="english",
+        max_features=10
+    )
 
-            if (
-                total_reviews >= 20
-                and negative_percent >= ALERT_THRESHOLD
-            ):
+    try:
+        X = vectorizer.fit_transform(reviews)
 
-                user_email = current_user["email"]
+        keywords = vectorizer.get_feature_names_out()
 
-                st.warning("EMAIL ALERT TRIGGERED")
+        keyword_counts = X.toarray().sum(axis=0)
 
-                result = send_negative_alert(
-                    receiver_email=user_email,
-                    negative_percentage=negative_percent,
-                    total_reviews=total_reviews,
-                    top_issues=list(keywords[:5])
-                )
-                if result:
-                    st.success("📧 Alert email sent successfully!")
+        keyword_df = pd.DataFrame({
+            "Keyword": keywords,
+            "Frequency": keyword_counts
+        })
 
-        except ValueError as e:
-            if "empty vocabulary" in str(e).lower():
-                keywords = []
-                keyword_counts = []
-            else:
-                raise
+    except ValueError as e:
+
+        if "empty vocabulary" in str(e).lower():
+            keywords = []
+            keyword_counts = []
+        else:
+            raise
 
     keyword_df = pd.DataFrame({"Keyword": keywords, "Frequency": keyword_counts})
 
@@ -595,8 +562,6 @@ if data:
         ax2.set_ylabel("Frequency")
         st.pyplot(fig2)
         plt.close(fig2)
-            st.pyplot(fig3)
-            plt.close(fig3)
 
         with col1:
             st.subheader("Negative Review Spike Detection")
@@ -798,8 +763,8 @@ if data:
                 st.session_state["confirm_clear"] = False
                 st.rerun()
 
-else:
-    st.info("Upload feedback to start building insights.")
+#else:
+#    st.info("Upload feedback to start building insights.")
 
 # ─── Admin Tab ────────────────────────────────────────────────────────────────
 
