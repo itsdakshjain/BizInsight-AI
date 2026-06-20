@@ -74,7 +74,8 @@ def register(
 
         if not workspace_id:
             return False, "Corporate ID is required."
-
+    
+    #To create option in the form.
     result = create_user(
     username=username,
     email=email,
