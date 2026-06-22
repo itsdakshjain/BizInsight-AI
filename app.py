@@ -57,6 +57,7 @@ from clustering.run_clustering import run_pipeline
 from clustering.vectorize import load_model
 
 from database import (
+    get_workspace_feedback,
     initialize_database,
     insert_feedback,
     insert_feedback_bulk,
@@ -341,7 +342,17 @@ with tabs[2]:
 
 # ─── Load Data ────────────────────────────────────────────────────────────────
 
-data = fetch_feedback(user_id=current_user["id"])
+if current_user["workspace_type"] == "corporate":
+
+    data = get_workspace_feedback(
+        current_user["workspace_id"]
+    )
+
+else:
+
+    data = fetch_feedback(
+        user_id=current_user["id"]
+    )
 
 if data:
     df = pd.DataFrame(data, columns=["review", "sentiment", "date"])
@@ -401,38 +412,38 @@ if data:
 
     reviews = df["review"].dropna()
 
-if reviews.empty or (
-    reviews.apply(lambda x: isinstance(x, str)).all()
-    and reviews.str.strip().eq("").all()
-):
-    keywords = []
-    keyword_counts = []
+    if reviews.empty or (
+        reviews.apply(lambda x: isinstance(x, str)).all()
+        and reviews.str.strip().eq("").all()
+    ):
+        keywords = []
+        keyword_counts = []
 
-else:
-    vectorizer = CountVectorizer(
-        stop_words="english",
-        max_features=10
-    )
+    else:
+        vectorizer = CountVectorizer(
+            stop_words="english",
+            max_features=10
+        )
 
-    try:
-        X = vectorizer.fit_transform(reviews)
+        try:
+            X = vectorizer.fit_transform(reviews)
 
-        keywords = vectorizer.get_feature_names_out()
+            keywords = vectorizer.get_feature_names_out()
 
-        keyword_counts = X.toarray().sum(axis=0)
+            keyword_counts = X.toarray().sum(axis=0)
 
-        keyword_df = pd.DataFrame({
-            "Keyword": keywords,
-            "Frequency": keyword_counts
-        })
+            keyword_df = pd.DataFrame({
+                "Keyword": keywords,
+                "Frequency": keyword_counts
+            })
 
-    except ValueError as e:
+        except ValueError as e:
 
-        if "empty vocabulary" in str(e).lower():
-            keywords = []
-            keyword_counts = []
-        else:
-            raise
+            if "empty vocabulary" in str(e).lower():
+                keywords = []
+                keyword_counts = []
+            else:
+                raise
 
     keyword_df = pd.DataFrame({"Keyword": keywords, "Frequency": keyword_counts})
 

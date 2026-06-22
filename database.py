@@ -214,7 +214,32 @@ def get_user_workspace(user_id):
     except sqlite3.Error as e:
         logger.error(f"Workspace Fetch Error: {e}")
         return None
+def get_workspace_feedback(workspace_id):
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
 
+            cursor.execute(
+                """
+                SELECT
+                    f.review,
+                    f.sentiment,
+                    f.created_at
+                FROM feedback f
+                INNER JOIN users u
+                    ON f.user_id = u.id
+                WHERE u.workspace_id = ?
+                ORDER BY f.created_at DESC
+                """,
+                (workspace_id,)
+            )
+
+            return cursor.fetchall()
+
+    except sqlite3.Error as e:
+        logger.error(f"Workspace Fetch Error: {e}")
+        return []
+    
 def verify_password(plain_password, hashed_password):
     return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
