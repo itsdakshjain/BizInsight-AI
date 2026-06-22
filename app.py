@@ -354,9 +354,9 @@ else:
         user_id=current_user["id"]
     )
 
-if data:
-    df = pd.DataFrame(data, columns=["review", "sentiment", "date"])
+df = pd.DataFrame(data, columns=["review", "sentiment", "date"])
 
+if not df.empty:
     df["date"] = pd.to_datetime(df["date"])
 
     positive = (df["sentiment"] > 0).sum()
@@ -364,6 +364,7 @@ if data:
     neutral  = (df["sentiment"] == 0).sum()
     total_reviews = len(df)
 
+    # These are now safe from ZeroDivisionError because total_reviews > 0
     positive_percent = round((positive / total_reviews) * 100, 2)
     negative_percent = round((negative / total_reviews) * 100, 2)
     neutral_percent  = round((neutral  / total_reviews) * 100, 2)
