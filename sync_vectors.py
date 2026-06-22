@@ -3,6 +3,7 @@ import sqlite3
 import logging
 import shutil
 import os
+import time
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
@@ -40,25 +41,40 @@ def sync_reviews(clear_existing=True):
 
     # 2. If clear_existing, delete DOCUMENTS instead of the whole collection
     if clear_existing:
-        try:
-            # Create a temporary client to clear documents
-            temp_client = Chroma(
-                persist_directory=persist_dir,
-                embedding_function=embeddings,
-                collection_name=collection_name
-            )
-            
-            # Find all existing document IDs
-            existing_data = temp_client.get()
-            if existing_data and existing_data["ids"]:
-                # Delete only the documents, keeping the collection ID intact
-                temp_client.delete(ids=existing_data["ids"])
-                logger.info(f"Cleared {len(existing_data['ids'])} existing documents from collection")
-                
-        except Exception as e:
-            logger.error(f"Cannot clear collection (API server may be running): {e}")
-            logger.error("Please stop the FastAPI server and try again.")
-            raise RuntimeError("Vector store locked. Stop the RAG API server before uploading.") from e
+        for attempt in range(3):
+            try:
+                temp_client = Chroma(
+                    persist_directory=persist_dir,
+                    embedding_function=embeddings,
+                    collection_name=collection_name
+                )
+
+                existing_data = temp_client.get()
+
+                if existing_data and existing_data["ids"]:
+                    temp_client.delete(ids=existing_data["ids"])
+                    logger.info(
+                        f"Cleared {len(existing_data['ids'])} existing documents from collection"
+                    )
+
+                break
+
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(
+                        f"Retrying vector cleanup ({attempt + 1}/3): {e}"
+                    )
+                    time.sleep(1)
+                else:
+                    logger.error(
+                        f"Cannot clear collection (API server may be running): {e}"
+                    )
+                    logger.error(
+                        "Please stop the FastAPI server and try again."
+                    )
+                    raise RuntimeError(
+                        "Vector store locked. Stop the RAG API server before uploading."
+                    ) from e
 
     # 3. Create fresh collection
     vectorstore = Chroma.from_documents(
