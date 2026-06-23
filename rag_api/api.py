@@ -94,6 +94,13 @@ def chat(request: ChatRequest):
                 result = chain.invoke({"question": request.question})
                 answer = result.get("answer", "")
                 sources = [doc.page_content for doc in result.get("source_documents", [])]
+                # Persist this turn so the session survives restarts / chain eviction.
+                if answer:
+                    try:
+                        from database import save_chat_turn
+                        save_chat_turn(request.session_id, request.question, answer)
+                    except Exception as exc:
+                        logger.warning("Could not persist chat turn for %s: %s", request.session_id, exc)
             else:
                 chain = chain_manager.get_qa_chain(search_filter=search_filter)
                 result = chain.invoke({"query": request.question})

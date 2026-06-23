@@ -104,6 +104,22 @@ class RAGChainManager:
                 k=RAGConfig.CONVERSATION_MEMORY_WINDOW
             )
             
+            # Rebuild memory from persisted history so a session survives
+            # restarts / chain eviction. On a cold cache miss we replay the
+            # most recent turns into the buffer before building the chain.
+            try:
+                from database import load_chat_history
+                past_turns = load_chat_history(
+                    session_id, window=RAGConfig.CONVERSATION_MEMORY_WINDOW
+                )
+                for turn in past_turns:
+                    if turn["role"] == "human":
+                        memory.chat_memory.add_user_message(turn["content"])
+                    elif turn["role"] == "ai":
+                        memory.chat_memory.add_ai_message(turn["content"])
+            except Exception as exc:
+                logger.warning("Could not load persisted chat history for %s: %s", session_id, exc)
+            
             # Layer 1: Base Retriever
             base_retriever = self.vector_store_manager.get_retriever(search_filter=search_filter)
             

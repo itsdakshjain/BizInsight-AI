@@ -48,7 +48,22 @@ def initialize_database():
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
         """)
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_session
+        ON chat_history (session_id, created_at)
+        """)
+        conn.commit()
         # Workspace support
         user_columns = [
             row[1] for row in cursor.execute("PRAGMA table_info(users)").fetchall()
