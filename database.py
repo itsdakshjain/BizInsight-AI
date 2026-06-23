@@ -46,7 +46,22 @@ def initialize_database():
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
         """)
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_session
+        ON chat_history (session_id, created_at)
+        """)
+        conn.commit()
         # Workspace support
 
         try:
@@ -67,6 +82,50 @@ def insert_feedback(review, sentiment, created_at):
     # Handle None / NaN / empty reviews safely
     if review is None or str(review).strip() == "":
         raise ValueError("Review cannot be empty.")
+    
+def save_chat_turn(session_id, human_msg, ai_msg):
+    """Persist one conversation turn (human question + AI answer)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO chat_history (session_id, role, content) VALUES (?, ?, ?)",
+            (session_id, "human", human_msg),
+        )
+        cursor.execute(
+            "INSERT INTO chat_history (session_id, role, content) VALUES (?, ?, ?)",
+            (session_id, "ai", ai_msg),
+        )
+        conn.commit()
+
+
+def load_chat_history(session_id, window=None):
+    """Load chat turns for a session in chronological order.
+
+    If window is set, returns only the most recent `window` turns
+    (a turn = one human + one ai message, so 2 * window rows).
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if window:
+            # newest 2*window rows, then re-sort ascending for replay
+            rows = cursor.execute(
+                """
+                SELECT role, content FROM (
+                    SELECT id, role, content FROM chat_history
+                    WHERE session_id = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                ) ORDER BY id ASC
+                """,
+                (session_id, window * 2),
+            ).fetchall()
+        else:
+            rows = cursor.execute(
+                "SELECT role, content FROM chat_history WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+                (session_id,),
+            ).fetchall()
+        return [{"role": r[0], "content": r[1]} for r in rows]
+
 def no_users_exist():
     with get_connection() as conn:
         cursor = conn.cursor()
