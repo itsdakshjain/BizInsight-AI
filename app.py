@@ -439,18 +439,6 @@ if not df.empty:
         negative_trend > (rolling_mean + rolling_std)
     ]
 
-    st.write("Negative Trend")
-    st.write(negative_trend)
-    
-    st.write("Rolling Mean")
-    st.write(rolling_mean)
-    
-    st.write("Rolling Std")
-    st.write(rolling_std)
-    
-    st.write("Detected Anomalies")
-    st.write(anomalies)
-
     # =========================================
 
     reviews = df["review"].dropna()
