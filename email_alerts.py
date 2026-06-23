@@ -9,17 +9,12 @@ load_dotenv()
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
-print("EMAIL_ADDRESS =", EMAIL_ADDRESS)
-print("PASSWORD LENGTH =", len(EMAIL_PASSWORD) if EMAIL_PASSWORD else 0)
-
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def send_negative_alert(
-    receiver_email,
-    negative_percentage,
-    total_reviews,
-    top_issues=None
+    receiver_email, negative_percentage, total_reviews, top_issues=None
 ):
     """
     Send email alert when negative sentiment becomes high.
@@ -30,9 +25,7 @@ def send_negative_alert(
 
     subject = "⚠️ BizInsight AI Alert - High Negative Sentiment"
 
-    issue_text = "\n".join(
-        [f"- {issue}" for issue in top_issues]
-    )
+    issue_text = "\n".join([f"- {issue}" for issue in top_issues])
 
     body = f"""
 Hello,
@@ -63,22 +56,15 @@ BizInsight AI
             smtp.starttls()
             smtp.ehlo()
 
-            smtp.login(
-                EMAIL_ADDRESS,
-                EMAIL_PASSWORD
-            )
+            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
 
             smtp.send_message(msg)
 
-        logging.info(
-            f"Alert email sent successfully to {receiver_email}"
-        )
+        logging.info(f"Alert email sent successfully to {receiver_email}")
 
         return True
 
     except Exception as e:
         print("SMTP ERROR:", e)
-        logging.error(
-            f"Failed to send email to {receiver_email}: {e}"
-        )
+        logging.error(f"Failed to send email to {receiver_email}: {e}")
         return False
