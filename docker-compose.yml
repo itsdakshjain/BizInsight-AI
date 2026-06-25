@@ -4,11 +4,13 @@ services:
     ports:
       - "8501:8501"
     # Loads OPENROUTER_API_KEY (and any other secrets) from .env in the
-    # project root. The app raises a clear error on startup if this key
-    # is missing, so the .env file is required, not optional.
+    # project root. Using the plain string-list form for compatibility
+    # with Compose versions older than 2.24.0 (which don't support the
+    # path/required object syntax). The app itself raises a clear error
+    # on startup if this key is missing, so an explicit `required: true`
+    # here would be redundant.
     env_file:
-      - path: ./.env
-        required: true
+      - .env
     volumes:
       # Named volumes (managed by Docker) instead of host bind mounts.
       # Bind mounts can cause permission errors now that the container

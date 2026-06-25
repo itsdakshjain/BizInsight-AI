@@ -14,6 +14,7 @@ WORKDIR /app
 # System dependencies:
 #  - build-essential: needed to build some ML packages (hdbscan, etc.) from source
 #  - curl: used by the HEALTHCHECK below
+# (must run as root, before we ever switch to the non-root user below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -27,8 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # (pip's default "only-if-needed" upgrade strategy) and leaves it alone.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install Python dependencies first so this layer is cached
-# unless requirements.txt changes.
+# Install Python dependencies (still as root -- site-packages only need
+# to be *readable* by appuser later, which the default 755/644 perms
+# already allow, so no chown is needed for this layer).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -41,6 +43,26 @@ RUN pip install --no-cache-dir -r requirements.txt
 # runtime lookup are guaranteed to use the same path.
 ENV NLTK_DATA=/usr/local/share/nltk_data \
     HF_HOME=/usr/local/share/huggingface
+
+# Create the non-root user now, and pre-create every directory the app
+# writes to (app code, SQLite/Chroma data, NLTK/HF caches) with the
+# correct ownership from the start -- all while they're still empty.
+#
+# Why now and not later: doing `useradd`+`mkdir`+`chown` *before*
+# anything is downloaded into these paths means there's no existing
+# file content for Docker's copy-on-write layer mechanism to duplicate.
+# Running `chown -R` *after* ~600MB+ of NLTK/HF data already exists
+# would force overlay2 to copy every one of those files into a new
+# layer just to change ownership metadata, roughly doubling that
+# portion of the image. Creating the dirs empty and owned correctly
+# from the start avoids that entirely.
+RUN useradd -u 10001 -m appuser \
+    && mkdir -p /app /data /app/chroma_db "$NLTK_DATA" "$HF_HOME" \
+    && chown -R appuser:appuser /app /data "$NLTK_DATA" "$HF_HOME"
+
+# Everything from here on (model downloads, app code) is created
+# directly as appuser, so it's correctly owned with zero extra chown.
+USER appuser
 
 # Pre-download everything the app needs to do inference offline:
 #  - vader_lexicon / TextBlob corpora: used by sentiment.py / app.py
@@ -57,14 +79,15 @@ SentenceTransformer('all-mpnet-base-v2'); \
 SentenceTransformer('all-MiniLM-L6-v2'); \
 CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
-# Now copy the rest of the application code.
-COPY . .
+# Copy the application code, owned by appuser from the moment it lands
+# in the image (no separate chown layer needed).
+COPY --chown=appuser:appuser . .
 
-# Create a data directory and symlink the database file into it.
-# database.py does sqlite3.connect("bizinsight.db"), a path relative to
-# /app, so /app/bizinsight.db now resolves through this symlink into
-# /data/bizinsight.db. /data is meant to be mounted as a volume in
-# docker-compose.yml.
+# Symlink the SQLite database path into /data, which is mounted as a
+# volume in docker-compose.yml. database.py does
+# sqlite3.connect("bizinsight.db"), a path relative to /app, so
+# /app/bizinsight.db now resolves through this symlink into
+# /data/bizinsight.db.
 #
 # This avoids bind-mounting the .db file directly: a single-file bind
 # mount doesn't give SQLite a real directory to create its sibling
@@ -72,32 +95,7 @@ COPY . .
 # it requires the file to already exist on the host before the first
 # `docker compose up` (otherwise Docker creates a directory in its place
 # and the app crashes trying to open a directory as a database).
-RUN mkdir -p /data && ln -sf /data/bizinsight.db /app/bizinsight.db
-
-# Pre-create /app/chroma_db so it exists in the image *before* the
-# corresponding volume is mounted onto it. Docker initializes a fresh
-# named volume's ownership from whatever already exists at that path in
-# the image -- if nothing exists there, the volume mounts as root-owned
-# and the non-root appuser below can't write to it (ChromaDB would fail
-# to persist embeddings at runtime).
-RUN mkdir -p /app/chroma_db
-
-# Run as a non-root user. By default containers run as root, which is
-# unnecessary privilege for a Streamlit app and a real risk if any
-# dependency has an exploitable vulnerability.
-#
-# chown covers:
-#  - /app, /data: app code + writable data dirs (DB, chroma_db)
-#  - $NLTK_DATA, $HF_HOME: the pre-downloaded caches are root-owned from
-#    the build steps above. Reading cached files works fine under the
-#    default 755 permissions, but huggingface_hub also writes a small
-#    per-file *lock* into a ".locks/" subfolder of the cache root on
-#    every load (even when the file is already cached, as part of its
-#    normal concurrent-access safety mechanism) -- that's a write to the
-#    cache root itself, which a non-owner can't do without this chown.
-RUN useradd -u 10001 -m appuser \
-    && chown -R appuser:appuser /app /data "$NLTK_DATA" "$HF_HOME"
-USER appuser
+RUN ln -sf /data/bizinsight.db /app/bizinsight.db
 
 # Streamlit's default port
 EXPOSE 8501

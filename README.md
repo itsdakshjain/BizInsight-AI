@@ -227,7 +227,6 @@ Start the Streamlit dashboard:
 ```bash
 streamlit run app.py
 ```
-
 ---
 
 ## 🐳 Run with Docker
@@ -247,7 +246,7 @@ docker compose up --build
 The dashboard will be available at **http://localhost:8501**.
 
 ### Notes
-- - Customer feedback data and vector embeddings are stored in Docker-managed named volumes, so they persist across `docker compose down` / `up` and rebuilds. To fully reset, run `docker compose down -v`.
+- Customer feedback data and vector embeddings are stored in Docker-managed named volumes, so they persist across `docker compose down` / `up` and rebuilds. To fully reset, run `docker compose down -v`.
 - The first build installs several large ML dependencies (PyTorch, Transformers, ChromaDB, etc.) and can take a while — subsequent builds are cached and much faster.
 - To stop the app: `docker compose down`
 
