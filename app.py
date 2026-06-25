@@ -567,12 +567,9 @@ if not df.empty:
 
     df["date"] = pd.to_datetime(df["date"])
 
-    # Sentiment Counts
-
-    positive = (df["sentiment"] > 0).sum()
-    negative = (df["sentiment"] < 0).sum()
-    neutral = (df["sentiment"] == 0).sum()
-
+    positive = (df["sentiment"] > 0.1).sum()
+    neutral = ((df["sentiment"] >= -0.1) & (df["sentiment"] <= 0.1)).sum()
+    negative = (df["sentiment"] < -0.1).sum()
     total_reviews = len(df)
 
     # Percentages
