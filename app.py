@@ -816,7 +816,7 @@ if not df.empty:
 
         try:
 
-            forecast_df = forecast_sentiment(
+            forecast_df, synthetic_history = forecast_sentiment(
                 df,
                 forecast_days
             )
@@ -824,6 +824,12 @@ if not df.empty:
             st.line_chart(
                 forecast_df.set_index("date")
             )
+
+            if synthetic_history:
+                st.warning(
+                    "All reviews share the same date. The forecast history was generated synthetically "
+                    "to support the model, so results may not reflect actual time-series behavior."
+                )
 
             current_sentiment = round(
                 df["sentiment"].mean(),
